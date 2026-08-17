@@ -20,6 +20,7 @@ import {
   fetchSubscribedSkus, fetchDomains, fetchOrgInfo, fetchAuditLogs, fetchSignInLogs,
 } from '../../services/graph/admin';
 import { DismissIcon } from '../../components/icons';
+import { Modal } from '../../components/Modal';
 import type { DirectoryUser, DirectoryRole } from '../../types';
 import './admin.css';
 
@@ -351,8 +352,7 @@ function UserDetailModal({ userId, accountIdx, token, onClose }: { userId: strin
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ width: 640, maxWidth: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} style={{ width: 640, maxWidth: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <h2>{user?.displayName || 'User detail'}</h2>
           <button className="modal-close" onClick={onClose}>
@@ -449,7 +449,6 @@ function UserDetailModal({ userId, accountIdx, token, onClose }: { userId: strin
             )
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

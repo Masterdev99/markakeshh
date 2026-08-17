@@ -12,6 +12,7 @@ import { useState, useEffect } from 'react';
 import { getTelegramSettings, saveTelegramSettings } from '../../services/storage/smtp';
 import { useToast } from '../../app/providers/ToastProvider';
 import { DismissIcon } from '../../components/icons';
+import { Modal } from '../../components/Modal';
 
 interface TelegramSettingsProps {
   onClose: () => void;
@@ -69,8 +70,7 @@ export function TelegramSettings({ onClose }: TelegramSettingsProps) {
   }
 
   return (
-    <div className="modal-overlay" id="telegramSettingsModal">
-      <div className="modal">
+    <Modal onClose={onClose} id="telegramSettingsModal">
         <div className="modal-header">
           <h2>Telegram Notification Settings</h2>
           <button className="modal-close" onClick={onClose}>
@@ -129,7 +129,6 @@ export function TelegramSettings({ onClose }: TelegramSettingsProps) {
           </button>
           <button className="modal-btn primary" onClick={handleSave}>Save Settings</button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

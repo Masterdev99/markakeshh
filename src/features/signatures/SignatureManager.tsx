@@ -10,6 +10,7 @@ import { loadSignatures, saveSignatures } from '../../services/storage/signature
 import type { Signature } from '../../types';
 import { useToast } from '../../app/providers/ToastProvider';
 import { DismissIcon, LinkIcon, ImageIcon } from '../../components/icons';
+import { Modal } from '../../components/Modal';
 
 interface SignatureManagerProps {
   onClose: () => void;
@@ -121,8 +122,7 @@ export function SignatureManager({ onClose, onInsert }: SignatureManagerProps) {
   }
 
   return (
-    <div className="modal-overlay" id="signatureManagerModal">
-      <div className="modal" style={{ width: 860, maxWidth: '95vw', height: '80vh', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+    <Modal onClose={onClose} id="signatureManagerModal" style={{ width: 860, maxWidth: '95vw', height: '80vh', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <h2>Signature Manager</h2>
           <button className="modal-close" onClick={onClose}>
@@ -209,7 +209,6 @@ export function SignatureManager({ onClose, onInsert }: SignatureManagerProps) {
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

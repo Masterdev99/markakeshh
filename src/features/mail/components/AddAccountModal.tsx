@@ -8,6 +8,7 @@ import { refreshToken } from '../../../services/graph/auth';
 import { saveRefreshProxyUrl, getRefreshProxyUrl } from '../../../services/storage/smtp';
 import { useToast } from '../../../app/providers/ToastProvider';
 import { DismissIcon } from '../../../components/icons';
+import { Modal } from '../../../components/Modal';
 import type { Account } from '../../../types';
 
 interface AddAccountModalProps {
@@ -134,8 +135,7 @@ export function AddAccountModal({ onClose }: AddAccountModalProps) {
   }
 
   return (
-    <div className="modal-overlay" id="addAccountModal">
-      <div className="modal">
+    <Modal onClose={onClose} id="addAccountModal">
         <div className="modal-header">
           <h2>Add Account</h2>
           <button className="modal-close" onClick={onClose}>
@@ -232,7 +232,6 @@ export function AddAccountModal({ onClose }: AddAccountModalProps) {
             {refreshLoading ? 'Adding & refreshing...' : 'Add with refresh only'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -19,6 +19,7 @@ import { useToast } from '../../app/providers/ToastProvider';
 import { ComposeWindow } from '../compose/ComposeWindow';
 import { SignatureManager } from '../signatures/SignatureManager';
 import { RulesManager } from '../rules/RulesManager';
+import { Modal } from '../../components/Modal';
 import { exportFolderAddresses, exportFullMailboxAddresses, exportAccountsDatabase, importAccountsDatabase } from '../../services/export';
 import {
   MailAddIcon, SignatureIcon, FilterIcon, ArrowDownloadIcon, CloudIcon,
@@ -503,8 +504,7 @@ export function MailView({ isActive, onSyncStatusChange }: MailViewProps) {
 
     {/* Move-to-folder picker */}
     {moveModalIds && (
-      <div className="modal-overlay" onClick={() => setMoveModalIds(null)}>
-        <div className="modal" style={{ width: 320, maxHeight: '70vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+      <Modal onClose={() => setMoveModalIds(null)} style={{ width: 320, maxHeight: '70vh', display: 'flex', flexDirection: 'column' }}>
           <div className="modal-header">
             <h2>Move {moveModalIds.length} message{moveModalIds.length !== 1 ? 's' : ''}</h2>
             <button className="modal-close" onClick={() => setMoveModalIds(null)}>
@@ -525,8 +525,7 @@ export function MailView({ isActive, onSyncStatusChange }: MailViewProps) {
               </button>
             ))}
           </div>
-        </div>
-      </div>
+      </Modal>
     )}
     </>
   );
