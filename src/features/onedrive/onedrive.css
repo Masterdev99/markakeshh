@@ -1,0 +1,75 @@
+/* OneDrive view — file browser list, matching the original's .item-row/.item-icon styling. */
+
+.onedrive-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.onedrive-file-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+.file-item:hover { background: var(--surface-hover); }
+.file-item:last-child { border-bottom: none; }
+
+.file-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--surface-alt);
+}
+.file-icon svg { width: 18px; height: 18px; fill: var(--text-secondary); }
+
+.file-icon.folder { background: #ffc107; }
+.file-icon.folder svg { fill: #fff; }
+.file-icon.pdf { background: #d13438; }
+.file-icon.pdf svg { fill: #fff; }
+.file-icon.doc { background: #2b579a; }
+.file-icon.doc svg { fill: #fff; }
+.file-icon.xls { background: #217346; }
+.file-icon.xls svg { fill: #fff; }
+.file-icon.img { background: #0078d4; }
+.file-icon.img svg { fill: #fff; }
+
+.file-info { flex: 1; min-width: 0; }
+.file-name {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+.file-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.file-action-btn {
+  width: 28px; height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.file-action-btn svg { width: 15px; height: 15px; fill: currentColor; }
+.file-action-btn:hover { background: var(--surface-hover); color: var(--text); }
+.file-action-btn.danger:hover { background: var(--error-light, #fde7e9); color: var(--error); }

@@ -1,0 +1,40 @@
+/**
+ * Design tokens — carried over verbatim from the original mailbox.html :root block.
+ * Do NOT rename or change values without explicit approval.
+ */
+
+:root {
+  --primary: #0F6CBD;
+  --primary-dark: #115EA3;
+  --primary-light: #EBF3FC;
+  --primary-lighter: #F0F6FD;
+  --surface: #ffffff;
+  --surface-alt: #FAF9F8;
+  --surface-hover: #F5F5F5;
+  --surface-hover2: #EDEBE9;
+  --border: #EDEBE9;
+  --border-light: #F3F2F1;
+  --text: #242424;
+  --text-secondary: #605E5C;
+  --text-muted: #8A8886;
+  --success: #107C10;
+  --warning: #C19C00;
+  --error: #C50F1F;
+  --unread-bar: #0F6CBD;
+  --selected-bg: #EAF0FA;
+  --selected-border: #0F6CBD;
+  --folder-hover: #F5F5F5;
+  --folder-active: #EAF0FA;
+  --shadow-sm: 0 1.6px 3.6px 0 rgba(0, 0, 0, 0.13), 0 0.3px 0.9px 0 rgba(0, 0, 0, 0.11);
+  --shadow-md: 0 3.2px 7.2px 0 rgba(0, 0, 0, 0.13), 0 0.6px 1.8px 0 rgba(0, 0, 0, 0.11);
+  --shadow-lg: 0 6.4px 14.4px 0 rgba(0, 0, 0, 0.13), 0 1.2px 3.6px 0 rgba(0, 0, 0, 0.11);
+  --shadow-xl: 0 12.8px 28.8px 0 rgba(0, 0, 0, 0.22), 0 0 8px 0 rgba(0, 0, 0, 0.18);
+  --header-bg: #0F6CBD;
+  --ribbon-bg: #ffffff;
+  --scrollbar-thumb: #C8C6C4;
+  --scrollbar-track: transparent;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+}
