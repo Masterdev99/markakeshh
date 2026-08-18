@@ -57,8 +57,18 @@ export async function fetchChildFolders(
   );
 }
 
-/** Max simultaneous in-flight child-folder requests across the whole recursive walk — avoids 429 storms on wide/deep folder trees. */
-const MAX_CONCURRENT_FOLDER_FETCHES = 4;
+/**
+ * Max simultaneous in-flight child-folder requests across the whole
+ * recursive walk. Set to 1 — fully sequential, one folder-list request in
+ * flight at a time — to exactly match New-mailbox.html's recursion, which
+ * is a plain `for...of` loop with `await` inside (lines 9313–9324): never
+ * more than one request for the whole tree. Some accounts appear to sit
+ * behind tenant-side throttling tight enough that even a handful of
+ * concurrent requests trips it, and this endpoint is walked at every
+ * account switch — sequential trades a bit of speed on wide folder trees
+ * for matching the concurrency profile that's actually proven to work.
+ */
+const MAX_CONCURRENT_FOLDER_FETCHES = 1;
 
 /**
  * Recursively fetch all folders up to an arbitrary depth.

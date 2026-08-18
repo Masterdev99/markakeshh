@@ -20,10 +20,12 @@ interface LiveSyncOptions {
   onNewMessages: (msgs: Message[]) => void;
   /** Fired on every sync tick (not just when new mail arrives) so the UI can show a live "checking / synced / error" state instead of a static label. */
   onSyncTick?: (state: 'checking' | 'synced' | 'error') => void;
+  /** Fired once, the first time the initial seed fetch succeeds for this account/folder — mirrors checkNewMessages()'s "messages.length === 0" first-load branch in New-mailbox.html, which re-fetches the folder tree at that point too (not just when new mail later arrives). Gives an account whose *initial* folder fetch happened to flake out a second chance right away instead of waiting for mail activity or a manual retry. */
+  onFirstSync?: () => void;
   enabled?: boolean;
 }
 
-export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, onNewMessages, onSyncTick, enabled = true }: LiveSyncOptions) {
+export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, onNewMessages, onSyncTick, onFirstSync, enabled = true }: LiveSyncOptions) {
   const seenIdsRef = useRef<Set<string>>(new Set());
   const keywordLoggedRef = useRef<Set<string>>(new Set());
 
@@ -41,6 +43,8 @@ export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, 
   onNewMessagesRef.current = onNewMessages;
   const onSyncTickRef = useRef(onSyncTick);
   onSyncTickRef.current = onSyncTick;
+  const onFirstSyncRef = useRef(onFirstSync);
+  onFirstSyncRef.current = onFirstSync;
   const allFoldersRef = useRef(allFolders);
   allFoldersRef.current = allFolders;
 
@@ -184,6 +188,7 @@ export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, 
       const msgs = await fetchLatestMessages(currentFolderId, account.accessToken, accountIdx, 10);
       msgs.forEach((m) => seenIdsRef.current.add(m.id));
       onSyncTickRef.current?.('synced');
+      onFirstSyncRef.current?.();
     } catch (_e) {
       onSyncTickRef.current?.('error');
     }

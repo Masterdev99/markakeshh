@@ -13,7 +13,8 @@ import { useSearchStore } from '../../store/search';
 import { FolderSidebar } from './components/FolderSidebar';
 import { MessageList } from './components/MessageList';
 import { ReadingPane } from './components/ReadingPane';
-import { SyncStatusIndicator, type SyncStatusHandle } from './components/SyncStatusIndicator';
+import { SyncStatusIndicator, ToolbarActionStatus } from './components/SyncStatusIndicator';
+import { useActionStatusStore } from '../../store/actionStatus';
 import { fetchMessages, markMessageRead, deleteMessage, permanentDeleteMessage, moveMessage, flagMessage, searchMessages, searchMessagesInFolder, sweepSenderMessages } from '../../services/graph/messages';
 import { mapWithConcurrency } from '../../utils/concurrency';
 
@@ -86,10 +87,6 @@ export function MailView({ isActive }: MailViewProps) {
   const [showCompose, setShowCompose] = useState(false);
   const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward' | null>(null);
 
-  // Live sync status — shown as a small pill near the message list, isolated
-  // into its own component (see SyncStatusIndicator) so its frequent updates
-  // don't re-render the folder sidebar / message list / reading pane.
-  const syncStatusRef = useRef<SyncStatusHandle>(null);
   const [showSigManager, setShowSigManager] = useState(false);
   const [showRulesManager, setShowRulesManager] = useState(false);
   const [moveModalIds, setMoveModalIds] = useState<string[] | null>(null);
@@ -327,7 +324,7 @@ export function MailView({ isActive }: MailViewProps) {
     const senderAddr = msg?.from?.emailAddress?.address;
     if (!senderAddr) { toast('Cannot sweep — sender address unknown', 'error'); return; }
     if (!confirm(`Move every message from ${senderAddr} to Deleted Items?`)) return;
-    syncStatusRef.current?.setOverride(`Sweeping messages from ${senderAddr}…`);
+    useActionStatusStore.getState().setText(`Sweeping messages from ${senderAddr}…`);
     try {
       const count = await sweepSenderMessages(senderAddr, 'deleteditems', account.accessToken, currentAccountIdx);
       if (messages.some((m) => m.from?.emailAddress?.address === senderAddr)) setSelectedMessageId(null);
@@ -336,7 +333,7 @@ export function MailView({ isActive }: MailViewProps) {
     } catch (e) {
       toast('Sweep failed: ' + (e as Error).message, 'error');
     } finally {
-      syncStatusRef.current?.setOverride(null);
+      useActionStatusStore.getState().setText(null);
     }
   }
 
@@ -358,60 +355,60 @@ export function MailView({ isActive }: MailViewProps) {
   async function handleLoadAll() {
     if (!hasNextPage) { toast('All messages already loaded', 'info'); return; }
     let pages = 1;
-    syncStatusRef.current?.setOverride(`Loading all messages… (page ${pages})`);
+    useActionStatusStore.getState().setText(`Loading all messages… (page ${pages})`);
     try {
       while (hasNextPage) {
         await fetchNextPage();
         pages++;
-        syncStatusRef.current?.setOverride(`Loading all messages… (page ${pages})`);
+        useActionStatusStore.getState().setText(`Loading all messages… (page ${pages})`);
       }
       toast(`Loaded all messages (${messages.length})`, 'success');
     } catch (e) {
       toast('Load all failed: ' + (e as Error).message, 'error');
     } finally {
-      syncStatusRef.current?.setOverride(null);
+      useActionStatusStore.getState().setText(null);
     }
   }
 
   async function handleExportAddresses() {
     if (!account) { toast('No account selected', 'error'); return; }
-    syncStatusRef.current?.setOverride('Starting export…');
+    useActionStatusStore.getState().setText('Starting export…');
     try {
       if (hasNextPage) await handleLoadAll();
-      syncStatusRef.current?.setOverride('Exporting addresses…');
+      useActionStatusStore.getState().setText('Exporting addresses…');
       const count = exportFolderAddresses(account, currentFolderId, messages);
       toast(`Exported ${count} email addresses`, 'success');
     } catch (e) {
       toast('Export failed: ' + (e as Error).message, 'error');
     } finally {
-      syncStatusRef.current?.setOverride(null);
+      useActionStatusStore.getState().setText(null);
     }
   }
 
   async function handleExportFullMailbox() {
     if (!account) { toast('No account selected', 'error'); return; }
-    syncStatusRef.current?.setOverride('Exporting full mailbox…');
+    useActionStatusStore.getState().setText('Exporting full mailbox…');
     try {
       const { addressCount, folderCount } = await exportFullMailboxAddresses(account, currentAccountIdx, (folderNm, count) => {
-        syncStatusRef.current?.setOverride(`Exporting ${folderNm}: ${count} msgs…`);
+        useActionStatusStore.getState().setText(`Exporting ${folderNm}: ${count} msgs…`);
       });
       toast(`Exported ${addressCount} email addresses from ${folderCount} folders`, 'success');
     } catch (e) {
       toast('Export failed: ' + (e as Error).message, 'error');
     } finally {
-      syncStatusRef.current?.setOverride(null);
+      useActionStatusStore.getState().setText(null);
     }
   }
 
   function handleExportDatabase() {
-    syncStatusRef.current?.setOverride('Exporting accounts database…');
+    useActionStatusStore.getState().setText('Exporting accounts database…');
     try {
       exportAccountsDatabase(accounts);
       toast(`Database exported (${accounts.length} accounts)`, 'success');
     } catch (e) {
       toast('Database export failed: ' + (e as Error).message, 'error');
     } finally {
-      syncStatusRef.current?.setOverride(null);
+      useActionStatusStore.getState().setText(null);
     }
   }
 
@@ -419,7 +416,7 @@ export function MailView({ isActive }: MailViewProps) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    syncStatusRef.current?.setOverride(`Loading database from ${file.name}…`);
+    useActionStatusStore.getState().setText(`Loading database from ${file.name}…`);
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
@@ -432,10 +429,10 @@ export function MailView({ isActive }: MailViewProps) {
       } catch (err) {
         toast('Failed to read database file: ' + (err as Error).message, 'error');
       } finally {
-        syncStatusRef.current?.setOverride(null);
+        useActionStatusStore.getState().setText(null);
       }
     };
-    reader.onerror = () => { toast('Failed to read database file', 'error'); syncStatusRef.current?.setOverride(null); };
+    reader.onerror = () => { toast('Failed to read database file', 'error'); useActionStatusStore.getState().setText(null); };
     reader.readAsText(file);
   }
 
@@ -514,7 +511,6 @@ export function MailView({ isActive }: MailViewProps) {
                 </span>
               </div>
               <SyncStatusIndicator
-                ref={syncStatusRef}
                 account={account}
                 accountIdx={currentAccountIdx}
                 currentFolderId={currentFolderId}
@@ -522,8 +518,26 @@ export function MailView({ isActive }: MailViewProps) {
                 isActive={isActive}
                 onNewMessages={(newMsgs) => {
                   queryClient.invalidateQueries({ queryKey: ['messages', account?.id, currentFolderId] });
+                  // Also re-fetch the folder tree on live-mail activity — mirrors
+                  // New-mailbox.html's checkNewMessages(), which calls
+                  // loadAllFolders() again on every batch of new mail (lines
+                  // 12753 and 12777). That's what actually made folder loading
+                  // reliable there: an account whose *initial* folder fetch got
+                  // rate-limited or otherwise flaked out gets another attempt
+                  // every time new mail arrives, rather than being stuck with
+                  // one shot at mount and a manual "Retry" button as the only
+                  // way back. Refetching react-query's already-open ['folders']
+                  // query here is the same coupling.
+                  queryClient.invalidateQueries({ queryKey: ['folders', account?.id] });
                   if (newMsgs.length === 1) toast(`New: ${newMsgs[0].subject || '(No subject)'}`, 'info');
                   else toast(`${newMsgs.length} new messages`, 'info');
+                }}
+                onFirstSync={() => {
+                  // Mirrors the OTHER trigger for New-mailbox.html's loadAllFolders()
+                  // re-fetch — its "messages.length === 0" first-load branch — so an
+                  // account gets a second folder-fetch attempt right after opening,
+                  // not only once new mail happens to arrive later.
+                  queryClient.invalidateQueries({ queryKey: ['folders', account?.id] });
                 }}
               />
             </div>
@@ -615,6 +629,8 @@ export function MailView({ isActive }: MailViewProps) {
                 </button>
                 <input ref={dbImportInputRef} type="file" accept=".m365db,.json" style={{ display: 'none' }} onChange={handleImportDatabase} />
               </div>
+
+              <ToolbarActionStatus />
             </div>
 
             <ReadingPane

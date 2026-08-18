@@ -611,6 +611,28 @@ body {
   animation: none;
 }
 
+/* Long-running toolbar action feedback (Load All / Export / Backup / Save DB
+   / Load DB / Sweep) — far right of the toolbar those buttons live in, next
+   to the sync-status pill's own copy of the same text (see useActionStatusStore). */
+.toolbar-action-status {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.toolbar-action-status .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: pulse 0.8s infinite;
+  flex-shrink: 0;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
