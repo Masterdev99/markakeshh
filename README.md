@@ -26,6 +26,7 @@ If you are developing a production application, we recommend enabling type-aware
     "react/rules-of-hooks": "error",
     "react/only-export-components": ["warn", { "allowConstantExport": true }]
   }
+  
 }
 ```
 
