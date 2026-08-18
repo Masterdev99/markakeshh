@@ -19,10 +19,12 @@ interface LiveSyncOptions {
   currentFolderId: string;
   allFolders: Array<{ id: string; displayName: string }>;
   onNewMessages: (msgs: Message[]) => void;
+  /** Fired on every sync tick (not just when new mail arrives) so the UI can show a live "checking / synced / error" state instead of a static label. */
+  onSyncTick?: (state: 'checking' | 'synced' | 'error') => void;
   enabled?: boolean;
 }
 
-export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, onNewMessages, enabled = true }: LiveSyncOptions) {
+export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, onNewMessages, onSyncTick, enabled = true }: LiveSyncOptions) {
   const seenIdsRef = useRef<Set<string>>(new Set());
   const keywordLoggedRef = useRef<Set<string>>(new Set());
 
@@ -142,6 +144,7 @@ export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, 
 
   const checkNewMessages = useCallback(async () => {
     if (!account) return;
+    onSyncTick?.('checking');
     try {
       const latest = await fetchLatestMessages(currentFolderId, account.accessToken, accountIdx, 10);
       const newMsgs = latest.filter((m) => !seenIdsRef.current.has(m.id));
@@ -150,19 +153,25 @@ export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, 
         onNewMessages(newMsgs);
         applyLocalRuleActions(newMsgs).catch(() => {});
       }
+      onSyncTick?.('synced');
     } catch (_e) {
       // Silently ignore sync errors — they'll be visible via error toasts if severe
+      onSyncTick?.('error');
     }
-  }, [account, accountIdx, currentFolderId, onNewMessages, applyLocalRuleActions]);
+  }, [account, accountIdx, currentFolderId, onNewMessages, applyLocalRuleActions, onSyncTick]);
 
   // Seed initial seen IDs on mount / account change
   const seedSeenIds = useCallback(async () => {
     if (!account) return;
+    onSyncTick?.('checking');
     try {
       const msgs = await fetchLatestMessages(currentFolderId, account.accessToken, accountIdx, 10);
       msgs.forEach((m) => seenIdsRef.current.add(m.id));
-    } catch (_e) { /* ignore */ }
-  }, [account, accountIdx, currentFolderId]);
+      onSyncTick?.('synced');
+    } catch (_e) {
+      onSyncTick?.('error');
+    }
+  }, [account, accountIdx, currentFolderId, onSyncTick]);
 
   useEffect(() => {
     if (!enabled) return;

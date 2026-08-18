@@ -462,6 +462,31 @@ body {
 
 .nav-rail-btn svg { width: 20px; height: 20px; fill: currentColor; }
 
+.nav-rail-divider {
+  width: 28px;
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+  flex-shrink: 0;
+}
+
+.nav-rail-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--success);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  border: 1.5px solid var(--surface-alt);
+}
+
 /* ==================== RIBBON TABS ==================== */
 .ribbon-tabs {
   background: var(--surface);
@@ -506,9 +531,11 @@ body {
   padding: 0 4px 0 8px;
   flex-shrink: 0;
   gap: 1px;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
-.toolbar-group { display: flex; align-items: center; gap: 1px; }
+.toolbar-group { display: flex; align-items: center; gap: 1px; flex-shrink: 0; }
 .toolbar-sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
 
 .toolbar-btn {
@@ -529,6 +556,7 @@ body {
 
 .toolbar-btn:hover { background: var(--surface-hover); }
 .toolbar-btn svg { width: 16px; height: 16px; fill: currentColor; }
+.toolbar-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 
 .toolbar-btn.primary {
   background: var(--primary);
@@ -563,6 +591,17 @@ body {
   border-radius: 50%;
   background: var(--success);
   animation: pulse 2s infinite;
+  flex-shrink: 0;
+}
+
+.sync-indicator .dot.spinning {
+  background: var(--primary);
+  animation: pulse 0.8s infinite;
+}
+
+.sync-indicator .dot.error {
+  background: var(--error);
+  animation: none;
 }
 
 @keyframes pulse {
@@ -582,7 +621,7 @@ body {
 }
 
 .col-resizer:hover,
-.col-resizer.dragging { background: transparent; }
+.col-resizer.dragging { background: var(--primary); width: 2px; }
 
 .col-resizer::after {
   content: '';
@@ -768,6 +807,8 @@ body {
   box-shadow: var(--shadow-lg);
   animation: toastIn 0.2s ease-out, toastOut 0.3s ease-in 3.7s forwards;
   max-width: 380px;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .toast svg { width: 16px; height: 16px; fill: currentColor; flex-shrink: 0; }

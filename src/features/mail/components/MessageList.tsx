@@ -251,10 +251,12 @@ function MessageRow({ msg, isSelected, isChecked, groupName, onSelect, onToggleC
         <div className="msg-row-subject-line">
           <span className={`msg-row-subject-text${isUnread ? ' unread-subj' : ''}`}>
             {msg.subject || '(No subject)'}
-            {msg.hasAttachments && (
-              <AttachIcon size={11} style={{ fill: 'var(--text-muted)', flexShrink: 0, verticalAlign: 'middle', marginLeft: 3 }} />
-            )}
           </span>
+          {msg.hasAttachments && (
+            <span title="Has attachments" style={{ display: 'inline-flex', flexShrink: 0 }}>
+              <AttachIcon size={13} className="msg-row-attach-indicator" />
+            </span>
+          )}
           <span className="msg-row-date">{date}</span>
         </div>
         <span className="msg-row-preview-text">{msg.bodyPreview}</span>

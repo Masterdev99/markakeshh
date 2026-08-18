@@ -27,13 +27,16 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       staleTime: 30_000,
+      // A background refetch on window focus was silently replacing the
+      // currently-rendered message body (and its already-patched CID images)
+      // out from under the reader — see useCidImagePatch's regression notes.
+      refetchOnWindowFocus: false,
     },
   },
 });
 
 function AppShell() {
   const [currentApp, setCurrentApp] = useState<AppId>('mail');
-  const [syncStatus, setSyncStatus] = useState('Live sync active');
   const { accounts, currentAccountIdx, initAccounts, setIsAdmin } = useAccountsStore();
   const { toast } = useToast();
 
@@ -41,6 +44,14 @@ function AppShell() {
   useEffect(() => {
     initAccounts();
   }, [initAccounts]);
+
+  // Tab title reflects the active mailbox — "Outlook — Name" (falls back to
+  // just "Outlook" when no account is selected).
+  useEffect(() => {
+    const account = currentAccountIdx >= 0 ? accounts[currentAccountIdx] : null;
+    const name = account?.displayName || account?.email;
+    document.title = name ? `Outlook — ${name}` : 'Outlook';
+  }, [currentAccountIdx, accounts]);
 
   // Detect admin directory roles for the current account (gates the Admin app/badge)
   useEffect(() => {
@@ -51,6 +62,15 @@ function AppShell() {
       .catch(() => setIsAdmin(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentAccountIdx, accounts[currentAccountIdx]?.id, setIsAdmin]);
+
+  // Bumped whenever feed settings change (FeedSyncSettings dispatches this)
+  // so the loop below restarts immediately instead of requiring a reload.
+  const [feedSettingsVersion, setFeedSettingsVersion] = useState(0);
+  useEffect(() => {
+    const handler = () => setFeedSettingsVersion((v) => v + 1);
+    window.addEventListener('outlook:feed-settings-changed', handler);
+    return () => window.removeEventListener('outlook:feed-settings-changed', handler);
+  }, []);
 
   // Start token refresh loop (every 5 min) and feed sync once accounts load
   useEffect(() => {
@@ -78,7 +98,7 @@ function AppShell() {
       clearInterval(refreshInterval);
       stopFeed();
     };
-  }, [accounts, currentAccountIdx, toast]);
+  }, [accounts, currentAccountIdx, toast, feedSettingsVersion]);
 
   const APP_NAMES: Record<string, string> = {
     mail: 'Outlook', calendar: 'Calendar', onedrive: 'OneDrive',
@@ -92,7 +112,6 @@ function AppShell() {
       <AppHeader
         currentApp={currentApp}
         onSwitchApp={setCurrentApp}
-        syncStatus={syncStatus}
       />
 
       <div className="app-body">
@@ -102,7 +121,6 @@ function AppShell() {
         <div className={`app-view${currentApp === 'mail' ? ' active' : ''}`} id="mailView">
           <MailView
             isActive={currentApp === 'mail'}
-            onSyncStatusChange={setSyncStatus}
           />
         </div>
 

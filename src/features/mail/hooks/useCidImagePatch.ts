@@ -1,16 +1,28 @@
 /**
- * useCidImagePatch hook — resolves cid: inline images after render.
+ * useCidImagePatch hook — resolves cid: inline images to data: URLs.
  *
- * CRITICAL: This hook MUST be applied on every container that renders
- * email HTML — reading pane body AND the reply/forward quoted text panel.
- * Missing it on either = broken inline images in that context.
+ * CRITICAL: The resolved HTML must flow back through React state (not an
+ * imperative DOM mutation) — anything else can be silently reverted the next
+ * time this component's JSX re-renders and React reconciles
+ * dangerouslySetInnerHTML against the original (still cid:-only) string.
+ * That divergence between "what's actually in the DOM" and "what React
+ * believes the DOM should contain" was the cause of inline images loading
+ * and then later disappearing. Callers must render
+ * `dangerouslySetInnerHTML={{ __html: patchedHtml ?? rawHtml }}` using the
+ * state this hook (indirectly, via applyCidPatch) helps produce — never
+ * mutate the container's innerHTML by hand.
  *
- * Ported faithfully from patchCidImages() at lines 9485–9641, including
- * the full 5-step algorithm with DOM scan + innerHTML regex scan +
- * parallel fetch + in-place src patch.
+ * The attachment lookup + fetch logic is ported faithfully from
+ * patchCidImages() at lines 9485–9641; only the "apply" step changed from an
+ * imperative DOM patch to a pure string transform so it can live in state.
+ *
+ * The resolved cid→dataURL map is cached at module scope (keyed by
+ * messageId) so the reading pane body and the reply panel's quoted "original
+ * message" — two separate instances of this hook — share one fetch instead
+ * of each re-downloading the same attachment bytes.
  */
 
-import { useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 import { graphApi } from '../../../services/graph/client';
 
 interface Attachment {
@@ -22,96 +34,85 @@ interface Attachment {
   isInline?: boolean;
 }
 
+type CidMap = Record<string, string>;
+
+const cidMapCache = new Map<string, CidMap>();
+const cidMapPending = new Map<string, Promise<CidMap>>();
+
 function normalizeContentId(cid: string): string {
   // Strip angle brackets:  <foo@bar> → foo@bar
   // Lowercase for comparison
   return cid.replace(/^<|>$/g, '').toLowerCase();
 }
 
+function extractCidRefs(html: string): Set<string> {
+  const refs = new Set<string>();
+  const CID_RE = /\bcid:([^\s"'<>)\]]+)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = CID_RE.exec(html)) !== null) refs.add(m[1]);
+  return refs;
+}
+
+/** Pure string transform — replaces every cid: reference in `html` with its resolved data: URL. Safe to call repeatedly / on every render. */
+export function applyCidPatch(html: string, map: CidMap): string {
+  if (!html || Object.keys(map).length === 0) return html;
+  let patched = html;
+  for (const [cidRef, dataUrl] of Object.entries(map)) {
+    const escaped = cidRef.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    patched = patched.replace(new RegExp('cid:' + escaped, 'gi'), dataUrl);
+  }
+  return patched;
+}
+
 export function useCidImagePatch() {
-  const patchingRef = useRef<Set<string>>(new Set());
+  const getCidMap = useCallback(async (messageId: string, accountIdx: number, html: string): Promise<CidMap> => {
+    if (cidMapCache.has(messageId)) return cidMapCache.get(messageId)!;
+    if (cidMapPending.has(messageId)) return cidMapPending.get(messageId)!;
 
-  const patchCidImages = useCallback(
-    async (
-      messageId: string,
-      accountIdx: number,
-      ...bodyEls: Array<HTMLElement | null>
-    ) => {
-      if (patchingRef.current.has(messageId)) return;
-      patchingRef.current.add(messageId);
+    const cidRefs = extractCidRefs(html);
+    if (cidRefs.size === 0) {
+      cidMapCache.set(messageId, {});
+      return {};
+    }
 
+    const promise = (async (): Promise<CidMap> => {
       try {
         // Step 1 — list ALL attachments (no $select to avoid 400 on contentId)
-        const listResp = await graphApi(`/me/messages/${messageId}/attachments`, accountIdx) as { value: Attachment[] };
+        const listResp = (await graphApi(`/me/messages/${messageId}/attachments`, accountIdx)) as { value: Attachment[] };
         const allAtts: Attachment[] = listResp.value ?? [];
 
         // Step 2 — build lookup maps
         const cidIndex: Record<string, Attachment> = {};
         const nameIndex: Record<string, Attachment> = {};
-
         for (const att of allAtts) {
           if (att.contentId) {
             const key = normalizeContentId(att.contentId);
             if (key) cidIndex[key] = att;
           }
-          if (att.name) {
-            nameIndex[att.name.toLowerCase()] = att;
-          }
+          if (att.name) nameIndex[att.name.toLowerCase()] = att;
         }
 
-        // Step 3 — collect every cid: reference in all body elements
-        const validBodies = bodyEls.filter(Boolean) as HTMLElement[];
-        if (validBodies.length === 0) return;
-
-        const cidRefs = new Set<string>();
-
-        for (const bodyEl of validBodies) {
-          // 3a — DOM scan
-          bodyEl.querySelectorAll('img').forEach((img) => {
-            const src = img.getAttribute('src') || '';
-            if (src.toLowerCase().startsWith('cid:')) {
-              cidRefs.add(src.slice(4));
-            }
-          });
-
-          // 3b — innerHTML regex scan (catches URL-encoded / normalised refs)
-          const rawHtml = bodyEl.innerHTML;
-          const CID_RE = /\bcid:([^\s"'<>)\]]+)/gi;
-          let m: RegExpExecArray | null;
-          while ((m = CID_RE.exec(rawHtml)) !== null) {
-            cidRefs.add(m[1]);
-          }
-        }
-
-        if (cidRefs.size === 0) return;
-
-        // Step 4 — match each cid ref to an attachment (with 3 fallback strategies)
+        // Step 3 — match each cid ref to an attachment (with fallback strategies)
         const attById: Record<string, { att: Attachment; cidRefs: string[] }> = {};
-
         for (const cidRef of cidRefs) {
           const normRef = normalizeContentId(cidRef);
           let att: Attachment | undefined = cidIndex[normRef];
-
-          // Fallback 1: treat the cid ref as a filename
           if (!att) att = nameIndex[normRef];
-
-          // Fallback 2: strip @domain suffix and match filename stem
           if (!att) {
             const stem = normRef.replace(/@.*$/, '').toLowerCase();
-            att = nameIndex[stem] ?? Object.values(nameIndex).find(
-              (a) => a.name?.toLowerCase().startsWith(stem)
-            );
+            att = nameIndex[stem] ?? Object.values(nameIndex).find((a) => a.name?.toLowerCase().startsWith(stem));
           }
-
           if (!att) continue;
-
           if (!attById[att.id]) attById[att.id] = { att, cidRefs: [] };
           attById[att.id].cidRefs.push(cidRef);
         }
 
-        if (Object.keys(attById).length === 0) return;
+        if (Object.keys(attById).length === 0) {
+          cidMapCache.set(messageId, {});
+          return {};
+        }
 
-        // Step 5 — fetch attachment bytes in parallel
+        // Step 4 — fetch attachment bytes in parallel
         const fetchResults = await Promise.allSettled(
           Object.values(attById).map(({ att, cidRefs: refs }) =>
             (graphApi(`/me/messages/${messageId}/attachments/${att.id}`, accountIdx) as Promise<Attachment>)
@@ -124,51 +125,26 @@ export function useCidImagePatch() {
           )
         );
 
-        // Build cid → dataUrl map
-        const patchMap: Record<string, string> = {};
+        const patchMap: CidMap = {};
         fetchResults.forEach((r) => {
           if (r.status === 'fulfilled' && r.value) {
             r.value.cidRefs.forEach((ref) => { patchMap[ref] = r.value!.dataUrl; });
           }
         });
 
-        if (Object.keys(patchMap).length === 0) return;
-
-        // Step 6 — apply patches to DOM
-        for (const bodyEl of validBodies) {
-          // 6a — innerHTML replace for non-img cid refs (background-image, etc.)
-          let patched = bodyEl.innerHTML;
-          let changed = false;
-          for (const [cidRef, dataUrl] of Object.entries(patchMap)) {
-            const escaped = cidRef.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const re = new RegExp('cid:' + escaped, 'gi');
-            const next = patched.replace(re, dataUrl);
-            if (next !== patched) { patched = next; changed = true; }
-          }
-          if (changed) bodyEl.innerHTML = patched;
-
-          // 6b — img src surgical patch (after innerHTML so attrs are current)
-          bodyEl.querySelectorAll('img').forEach((img) => {
-            const src = img.getAttribute('src') || '';
-            if (!src.toLowerCase().startsWith('cid:')) return;
-            const ref = src.slice(4);
-            const dataUrl =
-              patchMap[ref] ??
-              patchMap[normalizeContentId(ref)] ??
-              patchMap[Object.keys(patchMap).find(
-                (k) => normalizeContentId(k) === normalizeContentId(ref)
-              ) ?? ''];
-            if (dataUrl) img.setAttribute('src', dataUrl);
-          });
-        }
+        cidMapCache.set(messageId, patchMap);
+        return patchMap;
       } catch (e) {
         console.warn('[cid-patch] Failed:', (e as Error).message);
+        return {};
       } finally {
-        patchingRef.current.delete(messageId);
+        cidMapPending.delete(messageId);
       }
-    },
-    []
-  );
+    })();
 
-  return patchCidImages;
+    cidMapPending.set(messageId, promise);
+    return promise;
+  }, []);
+
+  return getCidMap;
 }

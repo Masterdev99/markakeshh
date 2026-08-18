@@ -14,7 +14,7 @@ import { FolderSidebar } from './components/FolderSidebar';
 import { MessageList } from './components/MessageList';
 import { ReadingPane } from './components/ReadingPane';
 import { useLiveSync } from './hooks/useLiveSync';
-import { fetchMessages, markMessageRead, deleteMessage, permanentDeleteMessage, moveMessage, flagMessage, searchMessages, searchMessagesInFolder } from '../../services/graph/messages';
+import { fetchMessages, markMessageRead, deleteMessage, permanentDeleteMessage, moveMessage, flagMessage, searchMessages, searchMessagesInFolder, sweepSenderMessages } from '../../services/graph/messages';
 import { useToast } from '../../app/providers/ToastProvider';
 import { ComposeWindow } from '../compose/ComposeWindow';
 import { SignatureManager } from '../signatures/SignatureManager';
@@ -23,15 +23,28 @@ import { Modal } from '../../components/Modal';
 import { exportFolderAddresses, exportFullMailboxAddresses, exportAccountsDatabase, importAccountsDatabase } from '../../services/export';
 import {
   MailAddIcon, SignatureIcon, FilterIcon, ArrowDownloadIcon, CloudIcon,
-  DatabaseIcon, ArrowUploadIcon, DismissIcon,
+  DatabaseIcon, ArrowUploadIcon, DismissIcon, DeleteIcon, ArchiveIcon, ShieldErrorIcon,
+  CheckmarkCircleIcon, BroomIcon, FolderIcon, ReplyIcon, ReplyAllIcon, ForwardIcon,
+  FlashIcon, MailReadIcon, MailUnreadIcon,
 } from '../../components/icons';
+import { MailboxSwitcher } from './components/MailboxSwitcher';
+import { usePanelResize } from '../../hooks/usePanelResize';
 import type { Message, MailFolder } from '../../types';
 import './mail.css';
 import '../compose/compose.css';
 
 interface MailViewProps {
   isActive: boolean;
-  onSyncStatusChange: (status: string) => void;
+}
+
+function timeAgoLabel(date: Date | null): string {
+  if (!date) return '';
+  const secs = Math.max(0, Math.round((Date.now() - date.getTime()) / 1000));
+  if (secs < 5) return 'just now';
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
 function flattenFolders(items: MailFolder[]): Array<{ id: string; displayName: string }> {
@@ -66,7 +79,7 @@ function findFolderSubtreeIds(items: MailFolder[], targetId: string): string[] |
   return null;
 }
 
-export function MailView({ isActive, onSyncStatusChange }: MailViewProps) {
+export function MailView({ isActive }: MailViewProps) {
   const { accounts, currentAccountIdx, setAccounts } = useAccountsStore();
   const { currentFolderId, setCurrentFolder, folders } = useFoldersStore();
   const { clearSelection } = useSelectionStore();
@@ -78,6 +91,19 @@ export function MailView({ isActive, onSyncStatusChange }: MailViewProps) {
   const [folderName, setFolderName] = useState('Inbox');
   const allFolders = flattenFolders(folders);
   const [showCompose, setShowCompose] = useState(false);
+  const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward' | null>(null);
+
+  // Live sync status — shown as a small pill near the message list (never in
+  // the blue header bar, which reads poorly against white text) and updated
+  // on every sync tick so it never sits static.
+  const [syncState, setSyncState] = useState<'checking' | 'synced' | 'error'>('synced');
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [statusOverride, setStatusOverride] = useState<string | null>(null);
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => forceTick((t) => t + 1), 15_000);
+    return () => clearInterval(id);
+  }, []);
   const [showSigManager, setShowSigManager] = useState(false);
   const [showRulesManager, setShowRulesManager] = useState(false);
   const [moveModalIds, setMoveModalIds] = useState<string[] | null>(null);
@@ -167,7 +193,10 @@ export function MailView({ isActive, onSyncStatusChange }: MailViewProps) {
       queryClient.invalidateQueries({ queryKey: ['messages', account?.id, currentFolderId] });
       if (newMsgs.length === 1) toast(`New: ${newMsgs[0].subject || '(No subject)'}`, 'info');
       else toast(`${newMsgs.length} new messages`, 'info');
-      onSyncStatusChange(`Synced ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
+    },
+    onSyncTick: (state) => {
+      setSyncState(state);
+      if (state === 'synced') setLastSyncedAt(new Date());
     },
   });
 
@@ -220,26 +249,15 @@ export function MailView({ isActive, onSyncStatusChange }: MailViewProps) {
     setCurrentFolder(folderId);
     setFolderName(name);
     setSelectedMessageId(null);
+    setReplyMode(null);
     clearSelection();
   }
 
   function handleMessageSelect(msg: Message) {
+    // Selecting/viewing a message must not mark it read — only an explicit
+    // "Mark as read" action (handleMarkRead) may do that.
     setSelectedMessageId(msg.id);
-    // Optimistically mark read in cache
-    if (!msg.isRead) {
-      queryClient.setQueryData(['messages', account?.id, currentFolderId], (old: typeof data) => {
-        if (!old) return old;
-        return {
-          ...old,
-          pages: old.pages.map((page) => ({
-            ...page,
-            value: page.value.map((m: Message) => m.id === msg.id ? { ...m, isRead: true } : m),
-          })),
-        };
-      });
-      // Fire-and-forget API call
-      if (account) markMessageRead(msg.id, true, account.accessToken, currentAccountIdx).catch(() => {});
-    }
+    setReplyMode(null);
   }
 
   function handleNavigate(dir: -1 | 1) {
@@ -293,6 +311,61 @@ export function MailView({ isActive, onSyncStatusChange }: MailViewProps) {
     setMoveModalIds([id]);
   }
 
+  async function handleArchive(id: string) {
+    if (!account) return;
+    try {
+      await moveMessage(id, 'archive', account.accessToken, currentAccountIdx);
+      if (id === selectedMessageId) setSelectedMessageId(null);
+      queryClient.invalidateQueries({ queryKey: ['messages', account.id, currentFolderId] });
+      toast('Message archived', 'success');
+    } catch (e) {
+      toast('Archive failed: ' + (e as Error).message, 'error');
+    }
+  }
+
+  async function handleReport(id: string) {
+    if (!account) return;
+    try {
+      await moveMessage(id, 'junkemail', account.accessToken, currentAccountIdx);
+      if (id === selectedMessageId) setSelectedMessageId(null);
+      queryClient.invalidateQueries({ queryKey: ['messages', account.id, currentFolderId] });
+      toast('Reported as junk', 'success');
+    } catch (e) {
+      toast('Report failed: ' + (e as Error).message, 'error');
+    }
+  }
+
+  async function handleNotSpam(id: string) {
+    if (!account) return;
+    try {
+      await moveMessage(id, 'inbox', account.accessToken, currentAccountIdx);
+      if (id === selectedMessageId) setSelectedMessageId(null);
+      queryClient.invalidateQueries({ queryKey: ['messages', account.id, currentFolderId] });
+      toast('Moved back to Inbox', 'success');
+    } catch (e) {
+      toast('Failed: ' + (e as Error).message, 'error');
+    }
+  }
+
+  async function handleSweep(id: string) {
+    if (!account) return;
+    const msg = messages.find((m) => m.id === id);
+    const senderAddr = msg?.from?.emailAddress?.address;
+    if (!senderAddr) { toast('Cannot sweep — sender address unknown', 'error'); return; }
+    if (!confirm(`Move every message from ${senderAddr} to Deleted Items?`)) return;
+    setStatusOverride(`Sweeping messages from ${senderAddr}…`);
+    try {
+      const count = await sweepSenderMessages(senderAddr, 'deleteditems', account.accessToken, currentAccountIdx);
+      if (messages.some((m) => m.from?.emailAddress?.address === senderAddr)) setSelectedMessageId(null);
+      queryClient.invalidateQueries({ queryKey: ['messages', account.id, currentFolderId] });
+      toast(`Swept ${count} message${count !== 1 ? 's' : ''} from ${senderAddr}`, 'success');
+    } catch (e) {
+      toast('Sweep failed: ' + (e as Error).message, 'error');
+    } finally {
+      setStatusOverride(null);
+    }
+  }
+
   async function performMove(destFolderId: string, destFolderName: string) {
     if (!account || !moveModalIds || moveModalIds.length === 0) return;
     const ids = moveModalIds;
@@ -309,48 +382,70 @@ export function MailView({ isActive, onSyncStatusChange }: MailViewProps) {
   }
 
   async function handleLoadAll() {
-    toast('Loading all messages...', 'info');
-    while (hasNextPage) {
-      await fetchNextPage();
+    if (!hasNextPage) { toast('All messages already loaded', 'info'); return; }
+    let pages = 1;
+    setStatusOverride(`Loading all messages… (page ${pages})`);
+    try {
+      while (hasNextPage) {
+        await fetchNextPage();
+        pages++;
+        setStatusOverride(`Loading all messages… (page ${pages})`);
+      }
+      toast(`Loaded all messages (${messages.length})`, 'success');
+    } catch (e) {
+      toast('Load all failed: ' + (e as Error).message, 'error');
+    } finally {
+      setStatusOverride(null);
     }
   }
 
   async function handleExportAddresses() {
     if (!account) { toast('No account selected', 'error'); return; }
-    toast('Starting export...', 'info');
+    setStatusOverride('Starting export…');
     try {
       if (hasNextPage) await handleLoadAll();
+      setStatusOverride('Exporting addresses…');
       const count = exportFolderAddresses(account, currentFolderId, messages);
       toast(`Exported ${count} email addresses`, 'success');
     } catch (e) {
       toast('Export failed: ' + (e as Error).message, 'error');
+    } finally {
+      setStatusOverride(null);
     }
   }
 
   async function handleExportFullMailbox() {
     if (!account) { toast('No account selected', 'error'); return; }
-    toast('Exporting email addresses from full mailbox...', 'info');
+    setStatusOverride('Exporting full mailbox…');
     try {
       const { addressCount, folderCount } = await exportFullMailboxAddresses(account, currentAccountIdx, (folderNm, count) => {
-        onSyncStatusChange(`Exporting ${folderNm}: ${count} msgs...`);
+        setStatusOverride(`Exporting ${folderNm}: ${count} msgs…`);
       });
-      onSyncStatusChange('Live sync active');
       toast(`Exported ${addressCount} email addresses from ${folderCount} folders`, 'success');
     } catch (e) {
-      onSyncStatusChange('Export failed');
       toast('Export failed: ' + (e as Error).message, 'error');
+    } finally {
+      setStatusOverride(null);
     }
   }
 
   function handleExportDatabase() {
-    exportAccountsDatabase(accounts);
-    toast(`Database exported (${accounts.length} accounts)`, 'success');
+    setStatusOverride('Exporting accounts database…');
+    try {
+      exportAccountsDatabase(accounts);
+      toast(`Database exported (${accounts.length} accounts)`, 'success');
+    } catch (e) {
+      toast('Database export failed: ' + (e as Error).message, 'error');
+    } finally {
+      setStatusOverride(null);
+    }
   }
 
   function handleImportDatabase(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    setStatusOverride(`Loading database from ${file.name}…`);
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
@@ -362,16 +457,26 @@ export function MailView({ isActive, onSyncStatusChange }: MailViewProps) {
         toast(`Database loaded: ${parts.join(', ') || 'no changes'}`, 'success');
       } catch (err) {
         toast('Failed to read database file: ' + (err as Error).message, 'error');
+      } finally {
+        setStatusOverride(null);
       }
     };
+    reader.onerror = () => { toast('Failed to read database file', 'error'); setStatusOverride(null); };
     reader.readAsText(file);
   }
 
   const dbImportInputRef = useRef<HTMLInputElement>(null);
 
-  // Panel widths (resizable — Phase 6+)
-  const [folderWidth] = useState(220);
-  const [listWidth] = useState(340);
+  // Panel widths — draggable via .col-resizer handles, wired below
+  const [folderWidth, setFolderWidth] = useState(220);
+  const [listWidth, setListWidth] = useState(340);
+  const folderResize = usePanelResize({ minWidth: 140, maxWidth: 400, onResize: setFolderWidth });
+  const listResize = usePanelResize({ minWidth: 220, maxWidth: 640, onResize: setListWidth });
+  folderResize.setWidth(folderWidth);
+  listResize.setWidth(listWidth);
+
+  const hasSelectedMessage = !!selectedMessageId;
+  const isJunkFolder = currentFolderId.toLowerCase().replace(/\s+/g, '') === 'junkemail';
 
   return (
     <>
@@ -397,100 +502,175 @@ export function MailView({ isActive, onSyncStatusChange }: MailViewProps) {
           </button>
         </div>
 
-        {/* Load All / Export / Backup / DB import-export */}
-        <div style={{ padding: '8px 12px', display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          <button className="toolbar-btn" onClick={handleLoadAll} title="Load All">
-            <ArrowDownloadIcon size={15} />
-          </button>
-          <button className="toolbar-btn" onClick={handleExportAddresses} title="Export folder's email addresses">
-            <ArrowUploadIcon size={15} />
-          </button>
-          <button className="toolbar-btn" onClick={handleExportFullMailbox} title="Full Backup (export addresses from every folder)">
-            <CloudIcon size={15} />
-          </button>
-          <button className="toolbar-btn" onClick={handleExportDatabase} title="Export accounts database for backup">
-            <DatabaseIcon size={15} />
-          </button>
-          <button className="toolbar-btn" onClick={() => dbImportInputRef.current?.click()} title="Import accounts database from backup">
-            <ArrowDownloadIcon size={15} />
-          </button>
-          <input ref={dbImportInputRef} type="file" accept=".m365db,.json" style={{ display: 'none' }} onChange={handleImportDatabase} />
-        </div>
+        {/* Standalone mailbox switcher — separate from the header's account dropdown */}
+        <MailboxSwitcher />
 
         <FolderSidebar onFolderSelect={handleFolderSelect} />
       </div>
 
-      {/* Column resizer (Phase 6) */}
-      <div className="col-resizer" />
+      {/* Column resizer — folder sidebar / message-preview side */}
+      <div className="col-resizer" ref={folderResize.resizerRef} onMouseDown={folderResize.startResize} />
 
-      {/* Message List */}
-      <div style={{ width: listWidth, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid var(--border)' }}>
-        {/* Folder title bar */}
-        <div className="message-list-header">
-          <div className="message-list-title-row">
-            <h3 id="folderTitle">
-              {search.isSearchActive ? `Search in ${searchScopeLabel}: "${search.query}"` : folderName}
-            </h3>
-            <span className="message-count" id="messageCount">
-              {search.isSearchActive
-                ? `${messages.length} result${messages.length !== 1 ? 's' : ''}`
-                : `${messages.length}${hasNextPage ? '+' : ''} message${messages.length !== 1 ? 's' : ''}`}
-            </span>
+      {/* Message-preview side: quick-action toolbar + message list + reading pane */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Quick-action toolbar — mirrors New-mailbox.html's ribbon toolbar, scoped
+            to the message-preview side per explicit request (not above the folder sidebar). */}
+        <div className="toolbar" id="mailActionToolbar">
+          <div className="toolbar-group">
+            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleDelete(selectedMessageId)} title="Delete">
+              <DeleteIcon size={15} />Delete
+            </button>
+            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleArchive(selectedMessageId)} title="Archive">
+              <ArchiveIcon size={15} />Archive
+            </button>
+            {isJunkFolder ? (
+              <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleNotSpam(selectedMessageId)} title="Not junk">
+                <CheckmarkCircleIcon size={15} />Not spam
+              </button>
+            ) : (
+              <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleReport(selectedMessageId)} title="Report as junk">
+                <ShieldErrorIcon size={15} />Report
+              </button>
+            )}
+            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleSweep(selectedMessageId)} title="Sweep — move all messages from this sender">
+              <BroomIcon size={15} />Sweep
+            </button>
+            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleMove(selectedMessageId)} title="Move to…">
+              <FolderIcon size={15} />Move to
+            </button>
+          </div>
+
+          <div className="toolbar-sep" />
+
+          <div className="toolbar-group">
+            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => hasSelectedMessage && setReplyMode('reply')} title="Reply">
+              <ReplyIcon size={15} />Reply
+            </button>
+            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => hasSelectedMessage && setReplyMode('replyAll')} title="Reply all">
+              <ReplyAllIcon size={15} />Reply all
+            </button>
+            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => hasSelectedMessage && setReplyMode('forward')} title="Forward">
+              <ForwardIcon size={15} />Forward
+            </button>
+            <button className="toolbar-btn" onClick={() => setShowRulesManager(true)} title="Quick steps">
+              <FlashIcon size={15} />Quick steps
+            </button>
+          </div>
+
+          <div className="toolbar-sep" />
+
+          <div className="toolbar-group">
+            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleMarkRead(selectedMessageId, true)} title="Mark as read">
+              <MailReadIcon size={15} />Mark as read
+            </button>
+            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleMarkRead(selectedMessageId, false)} title="Mark as unread">
+              <MailUnreadIcon size={15} />Mark as unread
+            </button>
+          </div>
+
+          <div className="toolbar-spacer" />
+
+          <div className="toolbar-group">
+            <button className="toolbar-btn" onClick={handleLoadAll} title="Load all messages in this folder">
+              <ArrowDownloadIcon size={15} />Load All
+            </button>
+            <button className="toolbar-btn" onClick={handleExportAddresses} title="Export this folder's email addresses">
+              <ArrowUploadIcon size={15} />Export
+            </button>
+            <button className="toolbar-btn" onClick={handleExportFullMailbox} title="Full Backup — export addresses from every folder">
+              <CloudIcon size={15} />Backup
+            </button>
+            <button className="toolbar-btn" onClick={handleExportDatabase} title="Export accounts database for backup">
+              <DatabaseIcon size={15} />Save DB
+            </button>
+            <button className="toolbar-btn" onClick={() => dbImportInputRef.current?.click()} title="Import accounts database from backup">
+              <ArrowDownloadIcon size={15} />Load DB
+            </button>
+            <input ref={dbImportInputRef} type="file" accept=".m365db,.json" style={{ display: 'none' }} onChange={handleImportDatabase} />
           </div>
         </div>
 
-        {(search.isSearchActive || search.showFilterBar) && (
-          <div className="search-filter-bar" id="searchFilterBar">
-            <span className="search-filter-bar-label">Refine results:</span>
-            {([
-              ['hasAttachments', 'Has attachments'],
-              ['unread', 'Unread'],
-              ['toMe', 'To me'],
-              ['flagged', 'Flagged'],
-              ['highImportance', 'High importance'],
-            ] as const).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                className={`filter-chip${search.activeFilters.has(key) ? ' active' : ''}`}
-                onClick={() => search.toggleFilter(key)}
-              >{label}</button>
-            ))}
-            <button
-              type="button"
-              className="filter-chip"
-              disabled
-              title="Not available: Microsoft Graph only exposes @mention data via its beta API, which this app doesn't otherwise use."
-            >Mentions me</button>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+          {/* Message List */}
+          <div style={{ width: listWidth, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid var(--border)' }}>
+            {/* Folder title bar */}
+            <div className="message-list-header">
+              <div className="message-list-title-row">
+                <h3 id="folderTitle">
+                  {search.isSearchActive ? `Search in ${searchScopeLabel}: "${search.query}"` : folderName}
+                </h3>
+                <span className="message-count" id="messageCount">
+                  {search.isSearchActive
+                    ? `${messages.length} result${messages.length !== 1 ? 's' : ''}`
+                    : `${messages.length}${hasNextPage ? '+' : ''} message${messages.length !== 1 ? 's' : ''}`}
+                </span>
+              </div>
+              <div className="sync-indicator" id="syncStatus" style={{ paddingRight: 0 }} title={lastSyncedAt ? `Last synced ${lastSyncedAt.toLocaleTimeString()}` : undefined}>
+                <div className={`dot${statusOverride || syncState === 'checking' ? ' spinning' : syncState === 'error' ? ' error' : ''}`} />
+                {statusOverride
+                  ? statusOverride
+                  : syncState === 'checking' ? 'Syncing…'
+                    : syncState === 'error' ? 'Sync error — retrying'
+                      : lastSyncedAt ? `Synced ${timeAgoLabel(lastSyncedAt)}` : 'Live sync active'}
+              </div>
+            </div>
+
+            {(search.isSearchActive || search.showFilterBar) && (
+              <div className="search-filter-bar" id="searchFilterBar">
+                <span className="search-filter-bar-label">Refine results:</span>
+                {([
+                  ['hasAttachments', 'Has attachments'],
+                  ['unread', 'Unread'],
+                  ['toMe', 'To me'],
+                  ['flagged', 'Flagged'],
+                  ['highImportance', 'High importance'],
+                ] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`filter-chip${search.activeFilters.has(key) ? ' active' : ''}`}
+                    onClick={() => search.toggleFilter(key)}
+                  >{label}</button>
+                ))}
+                <button
+                  type="button"
+                  className="filter-chip"
+                  disabled
+                  title="Not available: Microsoft Graph only exposes @mention data via its beta API, which this app doesn't otherwise use."
+                >Mentions me</button>
+              </div>
+            )}
+
+            <MessageList
+              onSelect={handleMessageSelect}
+              selectedId={selectedMessageId}
+              messages={messages}
+              nextLink={nextLink}
+              isLoading={isLoading || isFetchingNextPage || isSearchLoading}
+              error={(error as Error | null) ?? searchError}
+              onLoadMore={() => { if (hasNextPage) fetchNextPage(); }}
+            />
           </div>
-        )}
 
-        <MessageList
-          onSelect={handleMessageSelect}
-          selectedId={selectedMessageId}
-          messages={messages}
-          nextLink={nextLink}
-          isLoading={isLoading || isFetchingNextPage || isSearchLoading}
-          error={(error as Error | null) ?? searchError}
-          onLoadMore={() => { if (hasNextPage) fetchNextPage(); }}
-        />
+          {/* Column resizer — message list / reading pane */}
+          <div className="col-resizer" ref={listResize.resizerRef} onMouseDown={listResize.startResize} />
+
+          {/* Reading Pane */}
+          <ReadingPane
+            messageId={selectedMessageId}
+            messages={messages}
+            selectedIdx={selectedIdx}
+            onNavigate={handleNavigate}
+            onDelete={handleDelete}
+            onMarkRead={handleMarkRead}
+            onFlag={handleFlag}
+            onMove={handleMove}
+            onClose={() => setSelectedMessageId(null)}
+            replyMode={replyMode}
+            onReplyModeChange={setReplyMode}
+          />
+        </div>
       </div>
-
-      {/* Column resizer (Phase 6) */}
-      <div className="col-resizer" />
-
-      {/* Reading Pane */}
-      <ReadingPane
-        messageId={selectedMessageId}
-        messages={messages}
-        selectedIdx={selectedIdx}
-        onNavigate={handleNavigate}
-        onDelete={handleDelete}
-        onMarkRead={handleMarkRead}
-        onFlag={handleFlag}
-        onMove={handleMove}
-        onClose={() => setSelectedMessageId(null)}
-      />
     </div>
 
     {/* Compose window (floating) */}

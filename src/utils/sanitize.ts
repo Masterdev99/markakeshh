@@ -24,7 +24,7 @@ const SAFE_ATTRS = new Set([
 // Attributes whose values must never contain javascript: or data: URIs
 const URL_ATTRS = new Set(['href', 'src', 'action', 'background', 'lowsrc', 'dynsrc']);
 
-function cleanNode(node: Node): void {
+function cleanNode(node: Node, baseHref: string | null): void {
   const toRemove: Node[] = [];
   for (const child of Array.from(node.childNodes)) {
     if (child.nodeType === Node.ELEMENT_NODE) {
@@ -45,10 +45,19 @@ function cleanNode(node: Node): void {
           continue;
         }
         if (URL_ATTRS.has(lattr)) {
-          const val = (el.getAttribute(attr) || '').trim().toLowerCase().replace(/[\x00-\x20]+/g, '');
+          const raw = el.getAttribute(attr) || '';
+          const val = raw.trim().toLowerCase().replace(/[\x00-\x20]+/g, '');
           // Allow cid: (inline images), http(s):, mailto:, tel:, relative paths
           if (/^(javascript|vbscript|data|file):/i.test(val)) {
             el.removeAttribute(attr);
+          } else if (baseHref && raw && !/^([a-z][a-z0-9+.-]*:|#|\/\/)/i.test(raw)) {
+            // The original email relied on a <base href> to resolve this
+            // relative URL — that tag is stripped for safety, so resolve it
+            // here instead, or the link/image would silently point at this
+            // app's own origin (a broken link) rather than the sender's site.
+            try {
+              el.setAttribute(attr, new URL(raw, baseHref).href);
+            } catch { /* leave as-is if unresolvable */ }
           }
         }
       }
@@ -59,7 +68,7 @@ function cleanNode(node: Node): void {
         el.setAttribute('rel', 'noopener noreferrer');
       }
 
-      cleanNode(child);
+      cleanNode(child, baseHref);
     }
   }
   toRemove.forEach((n) => n.parentNode?.removeChild(n));
@@ -81,7 +90,13 @@ export function sanitizeHtml(html: string): string {
       .replace(/\bon\w+\s*=[^\s>]*/gi, '');
   }
 
-  cleanNode(doc.body);
+  // Capture <base href> before it's discarded (only doc.body is kept below)
+  // so relative links/images that depended on it can still resolve correctly
+  // instead of silently pointing at this app's own origin.
+  const rawBase = doc.head.querySelector('base')?.getAttribute('href')?.trim() || null;
+  const baseHref = rawBase && /^https?:\/\//i.test(rawBase) ? rawBase : null;
+
+  cleanNode(doc.body, baseHref);
   return doc.body.innerHTML;
 }
 

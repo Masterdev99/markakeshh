@@ -5,8 +5,10 @@
  * - Single scroll container: the whole panel scrolls as one region, no nested
  *   scrollboxes (the editor's own `resize: vertical` is user-driven, not a
  *   second independent scroll region under normal use).
- * - CID images in quoted text MUST be patched via useCidImagePatch (done by
- *   the parent ReadingPane, which patches both the primary pane and historyRef).
+ * - CID images in the quoted "original message" are resolved via
+ *   useCidImagePatch/applyCidPatch into local state, same as the main
+ *   reading pane body — never via imperative DOM mutation (that was the
+ *   cause of inline images loading and later disappearing).
  * - Uses native contenteditable + refs — no rich-text library.
  * - Cc/Bcc auto-populate from structured recipients AND from addresses only
  *   mentioned in the quoted/forwarded body text (extractAllMentionedEmails),
@@ -18,22 +20,23 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import type { ChangeEvent, RefObject, MutableRefObject } from 'react';
+import type { ChangeEvent } from 'react';
 import { useAccountsStore } from '../../../store/accounts';
 import { loadSignatures } from '../../../services/storage/signatures';
 import { getFromAlias, getReplyTo } from '../../../services/storage/identity';
 import { createReply, createReplyAll, createForward, sendDraftMessage, updateDraftMessage } from '../../../services/graph/messages';
 import { escHtml, sanitizeHtml } from '../../../utils/sanitize';
 import { formatFullDate, getFileExtension } from '../../../utils/format';
+import { getAvatarColor } from '../../../utils/avatar';
 import { useToast } from '../../../app/providers/ToastProvider';
 import { SignatureManager } from '../../signatures/SignatureManager';
 import { DismissIcon, AttachIcon, LinkIcon, EmojiIcon, SendIcon } from '../../../components/icons';
+import { useCidImagePatch, applyCidPatch } from '../hooks/useCidImagePatch';
 import type { Message, Signature } from '../../../types';
 
 interface ReplyPanelProps {
   message: Message;
   mode: 'reply' | 'replyAll' | 'forward';
-  historyRef: RefObject<HTMLDivElement | null>;
   onClose: () => void;
 }
 
@@ -103,9 +106,11 @@ function RecipientRow({ label, recipients, onRemove, onAdd, placeholder }: {
   );
 }
 
-export function ReplyPanel({ message, mode, historyRef, onClose }: ReplyPanelProps) {
+export function ReplyPanel({ message, mode, onClose }: ReplyPanelProps) {
   const { accounts, currentAccountIdx } = useAccountsStore();
   const account = currentAccountIdx >= 0 ? accounts[currentAccountIdx] : null;
+  const getCidMap = useCidImagePatch();
+  const [cidPatchedHistoryHtml, setCidPatchedHistoryHtml] = useState<string | null>(null);
   const { toast } = useToast();
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -194,15 +199,6 @@ export function ReplyPanel({ message, mode, historyRef, onClose }: ReplyPanelPro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message, mode, account]);
 
-  // Expose the (read-only) original-message DOM node to the parent for CID patching
-  useEffect(() => {
-    if (!historyRef) return;
-    const historyEl = document.getElementById('replyMessageHistoryBody') as HTMLDivElement | null;
-    if (historyEl && historyRef.current !== historyEl) {
-      (historyRef as MutableRefObject<HTMLDivElement | null>).current = historyEl;
-    }
-  });
-
   function execFormat(command: string, value?: string) {
     document.execCommand(command, false, value);
     editorRef.current?.focus();
@@ -286,7 +282,7 @@ export function ReplyPanel({ message, mode, historyRef, onClose }: ReplyPanelPro
       const sigHtml = selectedSig?.content || '';
       const from = message.from?.emailAddress;
       const quotedHtml =
-        `<div style="border-left:3px solid #0F6CBD;padding-left:12px;margin:16px 0 0 0;color:#605E5C;font-family:inherit">` +
+        `<div style="border-left:3px solid #000;padding-left:12px;margin:16px 0 0 0;color:#605E5C;font-family:inherit">` +
         `<p style="margin:0 0 6px 0;font-size:12px;color:#8A8886">` +
         `<b>From:</b> ${from?.name && from.name !== from.address ? `${escHtml(from.name)} &lt;${escHtml(from.address || '')}&gt;` : escHtml(from?.address || '')}<br>` +
         `<b>Sent:</b> ${escHtml(formatFullDate(message.receivedDateTime))}<br>` +
@@ -340,6 +336,21 @@ export function ReplyPanel({ message, mode, historyRef, onClose }: ReplyPanelPro
   const historyInitials = historySender.split(' ').map((p) => p[0]).join('').substring(0, 2).toUpperCase();
   const historyBodyRaw = message.body?.content || message.bodyPreview || '';
   const historyBody = message.body?.contentType === 'html' ? sanitizeHtml(historyBodyRaw) : historyBodyRaw;
+  const renderedHistoryBody = cidPatchedHistoryHtml ?? historyBody;
+
+  // Resolve CID images in the quoted original message — shares the module-level
+  // cache in useCidImagePatch with the main reading pane, so this is a cache
+  // hit (no extra fetch) whenever that pane already resolved the same message.
+  useEffect(() => {
+    setCidPatchedHistoryHtml(null);
+    if (!historyBody.includes('cid:')) return;
+    let cancelled = false;
+    getCidMap(message.id, currentAccountIdx, historyBody).then((map) => {
+      if (cancelled || Object.keys(map).length === 0) return;
+      setCidPatchedHistoryHtml(applyCidPatch(historyBody, map));
+    });
+    return () => { cancelled = true; };
+  }, [message.id, currentAccountIdx, historyBody, getCidMap]);
 
   return (
     <div className="reply-panel" id="replyPanel" onClick={() => { setShowFormatMenu(false); setShowEmojiMenu(false); }}>
@@ -492,16 +503,16 @@ export function ReplyPanel({ message, mode, historyRef, onClose }: ReplyPanelPro
       <div className="message-history" id="messageHistory">
         <div className="message-history-item">
           <div className="message-history-header">
-            <div className="message-history-avatar">{historyInitials}</div>
+            <div className="message-history-avatar" style={{ background: getAvatarColor(from?.address || historySender) }}>{historyInitials}</div>
             <div className="message-history-meta">
               <div className="message-history-sender">{historySender}</div>
               <div className="message-history-date">{historyDate}</div>
             </div>
           </div>
           {message.body?.contentType === 'html' ? (
-            <div id="replyMessageHistoryBody" className="message-history-body" dangerouslySetInnerHTML={{ __html: historyBody }} />
+            <div id="replyMessageHistoryBody" className="message-history-body" dangerouslySetInnerHTML={{ __html: renderedHistoryBody }} />
           ) : (
-            <pre id="replyMessageHistoryBody" className="message-history-body" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 13 }}>{historyBody}</pre>
+            <pre id="replyMessageHistoryBody" className="message-history-body" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 13 }}>{renderedHistoryBody}</pre>
           )}
         </div>
       </div>

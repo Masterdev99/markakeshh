@@ -21,6 +21,7 @@ export function getAccountScopedKey(prefix: string, email?: string | null): stri
  */
 export const STORAGE_KEYS = {
   ACCOUNTS: 'outlook_accounts',
+  CURRENT_ACCOUNT_ID: 'outlook_current_account_id',
   EMAIL_SIGNATURES: 'email_signatures',
   FEED_URL: 'feed_url',
   FEED_INTERVAL: 'feed_interval',

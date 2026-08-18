@@ -26,6 +26,8 @@ export interface MailFolder {
   parentFolderId?: string;
   children?: MailFolder[];
   isExpanded?: boolean;
+  /** Set when this folder's children failed to load after retries — its subtree is shown as empty rather than blanking the whole tree. */
+  loadError?: boolean;
 }
 
 // ==================== MESSAGE ====================

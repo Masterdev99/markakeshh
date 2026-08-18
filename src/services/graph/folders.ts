@@ -40,30 +40,63 @@ export async function fetchChildFolders(
   return resp.value ?? [];
 }
 
+/** Max simultaneous in-flight child-folder requests across the whole recursive walk — avoids 429 storms on wide/deep folder trees. */
+const MAX_CONCURRENT_FOLDER_FETCHES = 4;
+
 /**
  * Recursively fetch all folders up to an arbitrary depth.
  * Mirrors fetchFoldersRecursive() at lines 8926–8996.
+ *
+ * Runs with bounded concurrency (a shared semaphore, not per-level Promise.all)
+ * so a wide tree doesn't fire dozens of parallel requests and trip Graph's
+ * rate limiter. Each branch's failure is caught and isolated — a single
+ * folder that fails to load keeps its already-fetched shape (with an
+ * `error` flag) instead of rejecting the entire tree and leaving every
+ * other folder blank.
  */
 export async function fetchFoldersRecursive(
   token: string,
   accountIdx: number,
-  parentId?: string,
-  depth = 0
+  parentId?: string
 ): Promise<MailFolder[]> {
-  const folders = parentId
-    ? await fetchChildFolders(parentId, token, accountIdx)
-    : await fetchRootFolders(token, accountIdx);
+  let active = 0;
+  const queue: Array<() => void> = [];
+  async function withLimit<T>(fn: () => Promise<T>): Promise<T> {
+    if (active >= MAX_CONCURRENT_FOLDER_FETCHES) {
+      await new Promise<void>((resolve) => queue.push(resolve));
+    }
+    active++;
+    try {
+      return await fn();
+    } finally {
+      active--;
+      queue.shift()?.();
+    }
+  }
 
-  const withChildren = await Promise.all(
-    folders.map(async (folder) => {
-      if ((folder.childFolderCount ?? 0) > 0) {
-        folder.children = await fetchFoldersRecursive(token, accountIdx, folder.id, depth + 1);
-      }
-      return folder;
-    })
-  );
+  async function walk(pid: string | undefined): Promise<MailFolder[]> {
+    const folders = pid
+      ? await fetchChildFolders(pid, token, accountIdx)
+      : await fetchRootFolders(token, accountIdx);
 
-  return withChildren;
+    await Promise.all(
+      folders.map(async (folder) => {
+        if ((folder.childFolderCount ?? 0) > 0) {
+          try {
+            folder.children = await withLimit(() => walk(folder.id));
+          } catch (e) {
+            console.error(`[folders] Failed to load children of "${folder.displayName}":`, e);
+            folder.children = [];
+            folder.loadError = true;
+          }
+        }
+      })
+    );
+
+    return folders;
+  }
+
+  return walk(parentId);
 }
 
 export async function createFolder(

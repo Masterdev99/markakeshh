@@ -11,9 +11,11 @@ import { AddAccountModal } from '../features/mail/components/AddAccountModal';
 
 interface AccountDropdownProps {
   onClose: () => void;
+  /** Overrides the default top-right (header avatar) anchor position — used when opened from the nav rail's connections icon. */
+  anchorStyle?: React.CSSProperties;
 }
 
-export function AccountDropdown({ onClose }: AccountDropdownProps) {
+export function AccountDropdown({ onClose, anchorStyle }: AccountDropdownProps) {
   const { accounts, currentAccountIdx, selectAccount, removeAccount } = useAccountsStore();
   const [showAddModal, setShowAddModal] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -45,7 +47,7 @@ export function AccountDropdown({ onClose }: AccountDropdownProps) {
 
   return (
     <>
-      <div className="account-dropdown" id="accountDropdown" ref={ref}>
+      <div className="account-dropdown" id="accountDropdown" ref={ref} style={anchorStyle}>
         {accounts.length === 0 ? (
           <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>
             No accounts added

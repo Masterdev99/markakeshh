@@ -9,6 +9,7 @@ import { create } from 'zustand';
 import type { Account } from '../types';
 import { loadAccounts, saveAccounts, migrateAccountsKey } from '../services/storage/accounts';
 import { setGraphAccounts } from '../services/graph/client';
+import { STORAGE_KEYS } from '../utils/storage-keys';
 
 interface AccountsState {
   accounts: Account[];
@@ -27,6 +28,21 @@ interface AccountsState {
   setIsAdmin: (isAdmin: boolean, roles?: string[]) => void;
 }
 
+function saveCurrentAccountId(accounts: Account[], idx: number): void {
+  const id = idx >= 0 ? accounts[idx]?.id : null;
+  if (id) localStorage.setItem(STORAGE_KEYS.CURRENT_ACCOUNT_ID, id);
+  else localStorage.removeItem(STORAGE_KEYS.CURRENT_ACCOUNT_ID);
+}
+
+function resolveIdxFromStoredId(accounts: Account[]): number {
+  const storedId = localStorage.getItem(STORAGE_KEYS.CURRENT_ACCOUNT_ID);
+  if (storedId) {
+    const idx = accounts.findIndex((a) => a.id === storedId);
+    if (idx >= 0) return idx;
+  }
+  return accounts.length > 0 ? 0 : -1;
+}
+
 export const useAccountsStore = create<AccountsState>((set, get) => ({
   accounts: [],
   currentAccountIdx: -1,
@@ -36,8 +52,24 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
   initAccounts: () => {
     migrateAccountsKey();
     const accounts = loadAccounts();
-    set({ accounts });
+    const currentAccountIdx = resolveIdxFromStoredId(accounts);
+    set({ accounts, currentAccountIdx });
     setGraphAccounts(accounts);
+
+    // Cross-tab sync: when another tab adds/removes/refreshes an account,
+    // pick up the change here too instead of showing stale/blank state.
+    window.addEventListener('storage', (e) => {
+      if (e.key === STORAGE_KEYS.ACCOUNTS) {
+        const latest = loadAccounts();
+        const prevSelectedId = get().currentAccountIdx >= 0 ? get().accounts[get().currentAccountIdx]?.id : null;
+        const newIdx = prevSelectedId ? latest.findIndex((a) => a.id === prevSelectedId) : -1;
+        set({ accounts: latest, currentAccountIdx: newIdx >= 0 ? newIdx : resolveIdxFromStoredId(latest) });
+        setGraphAccounts(latest);
+      } else if (e.key === STORAGE_KEYS.CURRENT_ACCOUNT_ID) {
+        const idx = resolveIdxFromStoredId(get().accounts);
+        set({ currentAccountIdx: idx });
+      }
+    });
   },
 
   setAccounts: (accounts) => {
@@ -60,6 +92,7 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
     set({ accounts, currentAccountIdx: newIdx });
     setGraphAccounts(accounts);
     saveAccounts(accounts);
+    saveCurrentAccountId(accounts, newIdx);
   },
 
   updateAccount: (idx, patch) => {
@@ -71,6 +104,7 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
 
   selectAccount: (idx) => {
     set({ currentAccountIdx: idx });
+    saveCurrentAccountId(get().accounts, idx);
   },
 
   saveToStorage: () => {

@@ -58,9 +58,11 @@ export function getFileExtension(name: string): string {
 export function getFileIconClass(ext: string): string {
   const e = ext.toLowerCase();
   if (e === 'pdf') return 'pdf';
-  if (['doc', 'docx'].includes(e)) return 'doc';
-  if (['xls', 'xlsx'].includes(e)) return 'xls';
-  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(e)) return 'img';
+  if (['doc', 'docx', 'rtf', 'txt'].includes(e)) return 'doc';
+  if (['xls', 'xlsx', 'csv'].includes(e)) return 'xls';
+  if (['ppt', 'pptx'].includes(e)) return 'ppt';
+  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(e)) return 'zip';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(e)) return 'img';
   return 'other';
 }
 

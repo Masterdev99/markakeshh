@@ -8,7 +8,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchStore } from '../store/search';
 import { TelegramSettings } from '../features/smtp-forwarding/TelegramSettings';
-import { FilterIcon, ChatIcon, ChevronRightIcon } from './icons';
+import { FeedSyncSettings } from '../features/feed/FeedSyncSettings';
+import { loadFeedSettings } from '../services/storage/feed';
+import { FilterIcon, ChatIcon, ChevronRightIcon, PlugConnectedIcon } from './icons';
 
 interface SettingsMenuProps {
   onClose: () => void;
@@ -17,6 +19,8 @@ interface SettingsMenuProps {
 export function SettingsMenu({ onClose }: SettingsMenuProps) {
   const search = useSearchStore();
   const [showTelegram, setShowTelegram] = useState(false);
+  const [showFeedSync, setShowFeedSync] = useState(false);
+  const feedConnected = !!loadFeedSettings();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -61,10 +65,32 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
           </span>
           <ChevronRightIcon size={16} className="settings-menu-item-chevron" />
         </button>
+
+        <div className="settings-menu-section-label">Accounts</div>
+        <button
+          type="button"
+          className="settings-menu-item"
+          onClick={() => { setShowFeedSync(true); }}
+        >
+          <PlugConnectedIcon size={18} className="settings-menu-item-icon" />
+          <span className="settings-menu-item-label">
+            <span>Auto-sync</span>
+            <span className="settings-menu-item-hint">
+              {feedConnected ? 'Connected — auto-importing accounts from your feed' : 'Automatically import accounts from a feed URL'}
+            </span>
+          </span>
+          <span className={`settings-menu-switch${feedConnected ? ' on' : ''}`} aria-hidden="true">
+            <span className="settings-menu-switch-dot" />
+          </span>
+        </button>
       </div>
 
       {showTelegram && (
         <TelegramSettings onClose={() => { setShowTelegram(false); onClose(); }} />
+      )}
+
+      {showFeedSync && (
+        <FeedSyncSettings onClose={() => { setShowFeedSync(false); onClose(); }} />
       )}
     </>
   );

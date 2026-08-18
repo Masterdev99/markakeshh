@@ -1,7 +1,9 @@
 /**
  * Signature Manager modal — CRUD for email signatures.
  *
- * Ported from showSignatureManager() at lines 11630–11890.
+ * Ported from showSignatureManager() at lines 11630–11890, redesigned onto
+ * the (previously unwired) card-grid layout in global.css's "SIGNATURE
+ * MANAGER" section, plus click-to-resize for inserted images.
  * Storage: `email_signatures` (shared key, not account-scoped — original behavior).
  */
 
@@ -9,7 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 import { loadSignatures, saveSignatures } from '../../services/storage/signatures';
 import type { Signature } from '../../types';
 import { useToast } from '../../app/providers/ToastProvider';
-import { DismissIcon, LinkIcon, ImageIcon } from '../../components/icons';
+import { DismissIcon, LinkIcon, ImageIcon, AddIcon, ArrowLeftIcon } from '../../components/icons';
 import { Modal } from '../../components/Modal';
 
 interface SignatureManagerProps {
@@ -18,19 +20,32 @@ interface SignatureManagerProps {
   onInsert?: (signature: Signature) => void;
 }
 
+const IMAGE_WIDTH_PRESETS = [
+  { label: 'S', width: 120 },
+  { label: 'M', width: 240 },
+  { label: 'L', width: 400 },
+  { label: 'Full', width: null },
+];
+
+function stripHtml(html: string): string {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  return (div.textContent || div.innerText || '').trim();
+}
+
 export function SignatureManager({ onClose, onInsert }: SignatureManagerProps) {
   const { toast } = useToast();
   const [sigs, setSigs] = useState<Signature[]>([]);
   const [selectedIdx, setSelectedIdx] = useState<number>(-1);
+  const [view, setView] = useState<'list' | 'edit'>('list');
   const [name, setName] = useState('');
   const editorRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [isNew, setIsNew] = useState(false);
+  const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
 
   useEffect(() => {
-    const loaded = loadSignatures();
-    setSigs(loaded);
-    if (loaded.length > 0) selectSig(0, loaded);
+    setSigs(loadSignatures());
   }, []);
 
   function selectSig(idx: number, list = sigs) {
@@ -38,17 +53,24 @@ export function SignatureManager({ onClose, onInsert }: SignatureManagerProps) {
     const sig = list[idx];
     if (sig) {
       setName(sig.name);
-      if (editorRef.current) editorRef.current.innerHTML = sig.content ?? '';
+      setView('edit');
+      setIsNew(false);
+      setSelectedImg(null);
+      // Editor isn't mounted until this render commits — set content next tick.
+      requestAnimationFrame(() => { if (editorRef.current) editorRef.current.innerHTML = sig.content ?? ''; });
     }
-    setIsNew(false);
   }
 
   function handleNew() {
     setSelectedIdx(-1);
     setName('');
-    if (editorRef.current) editorRef.current.innerHTML = '';
     setIsNew(true);
-    editorRef.current?.focus();
+    setView('edit');
+    setSelectedImg(null);
+    requestAnimationFrame(() => {
+      if (editorRef.current) editorRef.current.innerHTML = '';
+      editorRef.current?.focus();
+    });
   }
 
   function handleSave() {
@@ -73,22 +95,21 @@ export function SignatureManager({ onClose, onInsert }: SignatureManagerProps) {
       setSigs(updated);
       saveSignatures(updated);
       toast('Signature created', 'success');
-      selectSig(updated.length - 1, updated);
+      setSelectedIdx(updated.length - 1);
     }
     setIsNew(false);
+    setView('list');
   }
 
-  function handleDelete() {
-    if (selectedIdx < 0 || !sigs[selectedIdx]) return;
-    if (!confirm(`Delete signature "${sigs[selectedIdx].name}"?`)) return;
-    const updated = sigs.filter((_, i) => i !== selectedIdx);
+  function handleDelete(idx: number) {
+    if (!sigs[idx]) return;
+    if (!confirm(`Delete signature "${sigs[idx].name}"?`)) return;
+    const updated = sigs.filter((_, i) => i !== idx);
     setSigs(updated);
     saveSignatures(updated);
     toast('Signature deleted', 'success');
     setSelectedIdx(-1);
-    setName('');
-    if (editorRef.current) editorRef.current.innerHTML = '';
-    if (updated.length > 0) selectSig(0, updated);
+    setView('list');
   }
 
   function handleSetDefault(idx: number) {
@@ -112,103 +133,166 @@ export function SignatureManager({ onClose, onInsert }: SignatureManagerProps) {
       const dataUrl = ev.target?.result as string;
       editorRef.current?.focus();
       document.execCommand('insertImage', false, dataUrl);
-      // Make inserted image responsive
-      editorRef.current?.querySelectorAll('img:not([style])').forEach((img) => {
-        (img as HTMLImageElement).style.maxWidth = '100%';
+      editorRef.current?.querySelectorAll('img:not([data-sized])').forEach((img) => {
+        const el = img as HTMLImageElement;
+        el.style.maxWidth = '100%';
+        el.style.width = '240px';
+        el.style.height = 'auto';
+        el.setAttribute('data-sized', '1');
       });
     };
     reader.readAsDataURL(file);
     e.target.value = '';
   }
 
-  return (
-    <Modal onClose={onClose} id="signatureManagerModal" style={{ width: 860, maxWidth: '95vw', height: '80vh', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
-        <div className="modal-header">
-          <h2>Signature Manager</h2>
-          <button className="modal-close" onClick={onClose}>
-            <DismissIcon size={18} />
+  function handleEditorClick(e: React.MouseEvent) {
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'IMG') {
+      setSelectedImg(target as HTMLImageElement);
+    } else {
+      setSelectedImg(null);
+    }
+  }
+
+  function applyImageWidth(width: number | null) {
+    if (!selectedImg) return;
+    if (width === null) {
+      selectedImg.style.width = '';
+      selectedImg.style.maxWidth = '100%';
+    } else {
+      selectedImg.style.width = `${width}px`;
+    }
+    selectedImg.style.height = 'auto';
+    // Force a re-render so the toolbar reflects the new active preset.
+    setSelectedImg(null);
+    requestAnimationFrame(() => setSelectedImg(selectedImg));
+  }
+
+  const listView = (
+    <div className="sig-manager-body">
+      <div className="sig-manager-list">
+        <button type="button" className="sig-item" style={{ alignItems: 'center', justifyContent: 'center', minHeight: 90, color: 'var(--primary)', fontWeight: 600 }} onClick={handleNew}>
+          <AddIcon size={22} />
+          New signature
+        </button>
+        {sigs.map((sig, i) => (
+          <button
+            type="button"
+            key={sig.id ?? i}
+            className={`sig-item${selectedIdx === i ? ' active' : ''}`}
+            onClick={() => selectSig(i)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontWeight: 700, fontSize: 14, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>{sig.name}</span>
+              {sig.isDefault && (
+                <span style={{ fontSize: 10, background: 'var(--primary)', color: '#fff', borderRadius: 8, padding: '1px 6px', flexShrink: 0 }}>default</span>
+              )}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'left', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+              {stripHtml(sig.content) || 'Empty signature'}
+            </div>
           </button>
+        ))}
+      </div>
+      {sigs.length === 0 && (
+        <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, marginTop: 8 }}>
+          No signatures yet — create one to reuse it in Compose, Reply, and Forward.
         </div>
+      )}
+    </div>
+  );
 
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', gap: 0 }}>
-          {/* Left panel — signature list */}
-          <div style={{ width: 220, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-light)' }}>
-              <button className="modal-btn primary" style={{ width: '100%' }} onClick={handleNew}>+ New Signature</button>
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              {sigs.length === 0 && (
-                <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No signatures yet</div>
-              )}
-              {sigs.map((sig, i) => (
-                <div
-                  key={sig.id ?? i}
-                  className={`folder-item${selectedIdx === i ? ' active' : ''}`}
-                  style={{ padding: '8px 12px', cursor: 'pointer', justifyContent: 'space-between' }}
-                  onClick={() => selectSig(i)}
-                >
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sig.name}</span>
-                  {sig.isDefault && (
-                    <span style={{ fontSize: 10, background: 'var(--primary)', color: '#fff', borderRadius: 8, padding: '1px 6px', flexShrink: 0 }}>default</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+  const editView = (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+      {/* Name field */}
+      <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--border-light)', display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
+        <button type="button" className="modal-btn secondary" style={{ padding: '6px 10px' }} onClick={() => setView('list')} title="Back to signature list">
+          <ArrowLeftIcon size={15} />
+        </button>
+        <label style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Name</label>
+        <input
+          className="form-input"
+          style={{ flex: 1, padding: '6px 10px' }}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Signature name"
+          autoFocus
+        />
+      </div>
 
-          {/* Right panel — editor */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            {/* Name field */}
-            <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border-light)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-              <label style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Name</label>
-              <input
-                className="form-input"
-                style={{ flex: 1, padding: '4px 8px' }}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Signature name"
-              />
-            </div>
+      {/* Formatting toolbar */}
+      <div className="compose-toolbar" style={{ flexShrink: 0, background: 'var(--surface-alt)', padding: '6px 12px' }}>
+        <button className="compose-btn" onClick={() => exec('bold')}><strong>B</strong></button>
+        <button className="compose-btn" onClick={() => exec('italic')}><em>I</em></button>
+        <button className="compose-btn" onClick={() => exec('underline')}><u>U</u></button>
+        <div className="compose-sep" />
+        <button className="compose-btn" onClick={() => { const url = prompt('Link URL:'); if (url) exec('createLink', url); }}>
+          <LinkIcon size={15} />
+        </button>
+        <button className="compose-btn" onClick={() => imageInputRef.current?.click()} title="Insert image">
+          <ImageIcon size={15} />
+        </button>
+        <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleInsertImage} />
 
-            {/* Formatting toolbar */}
-            <div className="compose-toolbar" style={{ flexShrink: 0, background: 'var(--surface-alt)' }}>
-              <button className="compose-btn" onClick={() => exec('bold')}><strong>B</strong></button>
-              <button className="compose-btn" onClick={() => exec('italic')}><em>I</em></button>
-              <button className="compose-btn" onClick={() => exec('underline')}><u>U</u></button>
-              <div className="compose-sep" />
-              <button className="compose-btn" onClick={() => { const url = prompt('Link URL:'); if (url) exec('createLink', url); }}>
-                <LinkIcon size={15} />
+        {selectedImg && (
+          <>
+            <div className="compose-sep" />
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginRight: 2 }}>Image size:</span>
+            {IMAGE_WIDTH_PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                className="compose-btn"
+                style={{
+                  width: 'auto', padding: '0 8px', fontSize: 11, fontFamily: 'inherit', fontWeight: 600,
+                  background: (p.width === null ? !selectedImg.style.width : selectedImg.style.width === `${p.width}px`) ? 'var(--primary-light)' : 'transparent',
+                  color: (p.width === null ? !selectedImg.style.width : selectedImg.style.width === `${p.width}px`) ? 'var(--primary)' : undefined,
+                }}
+                onClick={() => applyImageWidth(p.width)}
+              >
+                {p.label}
               </button>
-              <button className="compose-btn" onClick={() => imageInputRef.current?.click()} title="Insert image">
-                <ImageIcon size={15} />
-              </button>
-              <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleInsertImage} />
-            </div>
+            ))}
+          </>
+        )}
+      </div>
 
-            {/* Signature editor */}
-            <div
-              ref={editorRef}
-              contentEditable
-              suppressContentEditableWarning
-              className="compose-body"
-              style={{ flex: 1, minHeight: 120, border: 'none', borderTop: '1px solid var(--border-light)', borderRadius: 0 }}
-            />
+      {/* Signature editor */}
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        className="compose-body"
+        style={{ flex: 1, minHeight: 160, maxHeight: 'none', border: 'none', borderTop: '1px solid var(--border-light)', borderRadius: 0 }}
+        onClick={handleEditorClick}
+      />
 
-            {/* Footer actions */}
-            <div style={{ display: 'flex', gap: 8, padding: '10px 16px', borderTop: '1px solid var(--border-light)', flexShrink: 0 }}>
-              <button className="modal-btn primary" onClick={handleSave}>Save</button>
-              {onInsert && selectedIdx >= 0 && sigs[selectedIdx] && (
-                <button className="modal-btn secondary" onClick={() => onInsert(sigs[selectedIdx])}>Insert</button>
-              )}
-              {selectedIdx >= 0 && !sigs[selectedIdx]?.isDefault && (
-                <button className="modal-btn secondary" onClick={() => handleSetDefault(selectedIdx)}>Set as default</button>
-              )}
-              {selectedIdx >= 0 && (
-                <button className="modal-btn secondary" style={{ color: 'var(--error)', marginLeft: 'auto' }} onClick={handleDelete}>Delete</button>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* Footer actions */}
+      <div style={{ display: 'flex', gap: 8, padding: '10px 20px', borderTop: '1px solid var(--border-light)', flexShrink: 0 }}>
+        <button className="modal-btn primary" onClick={handleSave}>Save</button>
+        {onInsert && selectedIdx >= 0 && sigs[selectedIdx] && (
+          <button className="modal-btn secondary" onClick={() => onInsert(sigs[selectedIdx])}>Insert</button>
+        )}
+        {selectedIdx >= 0 && !isNew && !sigs[selectedIdx]?.isDefault && (
+          <button className="modal-btn secondary" onClick={() => handleSetDefault(selectedIdx)}>Set as default</button>
+        )}
+        {selectedIdx >= 0 && !isNew && (
+          <button className="modal-btn secondary" style={{ color: 'var(--error)', marginLeft: 'auto' }} onClick={() => handleDelete(selectedIdx)}>Delete</button>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <Modal onClose={onClose} id="signatureManagerModal" style={{ width: 'min(900px, 92vw)', maxWidth: '95vw', height: '80vh', maxHeight: '80vh', display: 'flex', flexDirection: 'column', borderRadius: 8 }}>
+      <div className="sig-manager-header" style={{ borderRadius: '8px 8px 0 0' }}>
+        <h3>Signature Manager</h3>
+        <button className="modal-close" style={{ color: '#fff' }} onClick={onClose}>
+          <DismissIcon size={18} />
+        </button>
+      </div>
+
+      {view === 'list' ? listView : editView}
     </Modal>
   );
 }

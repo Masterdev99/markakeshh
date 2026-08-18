@@ -27,12 +27,11 @@ function flattenWithDepth(items: MailFolder[], depth = 0): Array<{ folder: MailF
 interface AppHeaderProps {
   currentApp: AppId;
   onSwitchApp: (app: AppId) => void;
-  syncStatus?: string;
 }
 
 const SCOPE_LABELS: Record<string, string> = { all: 'All folders', current: 'Current folder', subfolders: 'Subfolders' };
 
-export function AppHeader({ currentApp, onSwitchApp, syncStatus }: AppHeaderProps) {
+export function AppHeader({ currentApp, onSwitchApp }: AppHeaderProps) {
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -200,13 +199,6 @@ export function AppHeader({ currentApp, onSwitchApp, syncStatus }: AppHeaderProp
 
       {/* Right actions */}
       <div className="header-actions">
-        {syncStatus && (
-          <div className="sync-indicator" id="syncStatus">
-            <div className="dot" />
-            {syncStatus}
-          </div>
-        )}
-
         <div style={{ position: 'relative' }}>
           <button
             className={`header-btn${settingsOpen ? ' active' : ''}`}

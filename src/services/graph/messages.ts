@@ -187,6 +187,31 @@ export async function moveMessage(
   ) as Promise<Message>;
 }
 
+/**
+ * Sweep — move every message from the given sender address (mailbox-wide)
+ * into a destination folder (e.g. Deleted Items). Mirrors Outlook's "Sweep"
+ * quick action. Returns the number of messages moved.
+ */
+export async function sweepSenderMessages(
+  senderAddress: string,
+  destinationId: string,
+  token: string,
+  accountIdx: number
+): Promise<number> {
+  const filter = `from/emailAddress/address eq '${senderAddress.replace(/'/g, "''")}'`;
+  let path: string | null =
+    `/me/messages?$filter=${encodeURIComponent(filter)}&$select=id&$top=100`;
+  const ids: string[] = [];
+  while (path) {
+    const data = (await graphApi(path, token, 'GET', null, 3, accountIdx)) as MessageListResponse;
+    ids.push(...(data.value || []).map((m) => m.id));
+    const nextLink = data['@odata.nextLink'] || null;
+    path = nextLink ? nextLink.replace('https://graph.microsoft.com/v1.0', '') : null;
+  }
+  await Promise.allSettled(ids.map((id) => moveMessage(id, destinationId, token, accountIdx)));
+  return ids.length;
+}
+
 export async function flagMessage(
   messageId: string,
   flagged: boolean,

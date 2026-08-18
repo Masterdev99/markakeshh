@@ -6,20 +6,36 @@
  * patchCidImages() via useCidImagePatch hook.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAccountsStore } from '../../../store/accounts';
 import { fetchMessage, fetchAttachments } from '../../../services/graph/messages';
 import { sanitizeHtml } from '../../../utils/sanitize';
 import { formatFullDate, formatFileSize, base64ToBlob, getFileExtension, getFileIconClass } from '../../../utils/format';
 import { getInitials, getAvatarColor } from '../../../utils/avatar';
-import { useCidImagePatch } from '../hooks/useCidImagePatch';
+import { useCidImagePatch, applyCidPatch } from '../hooks/useCidImagePatch';
 import {
   DismissIcon, ArrowLeftIcon, ArrowRightIcon, SearchIcon, ReplyIcon, ReplyAllIcon,
   ForwardIcon, DeleteIcon, CheckmarkCircleIcon, FlagIcon, FolderIcon, AttachIcon, DocumentIcon,
+  PdfIcon, DocumentTableIcon, SlideTextIcon, FolderZipIcon, ImageIcon,
 } from '../../../components/icons';
 import type { Message, Attachment } from '../../../types';
 import { ReplyPanel } from './ReplyPanel';
+
+const ATTACHMENT_ICONS: Record<string, typeof DocumentIcon> = {
+  pdf: PdfIcon,
+  xls: DocumentTableIcon,
+  ppt: SlideTextIcon,
+  zip: FolderZipIcon,
+  img: ImageIcon,
+};
+
+function AttachmentTypeIcon({ fileClass, size }: { fileClass: string; size: number }) {
+  const Icon = ATTACHMENT_ICONS[fileClass] || DocumentIcon;
+  return <Icon size={size} />;
+}
+
+type ReplyMode = 'reply' | 'replyAll' | 'forward' | null;
 
 interface ReadingPaneProps {
   messageId: string | null;
@@ -31,17 +47,19 @@ interface ReadingPaneProps {
   onFlag: (id: string) => void;
   onMove: (id: string) => void;
   onClose: () => void;
+  /** Controlled from MailView so the new message-preview-side toolbar's Reply/Reply All/Forward buttons can drive the same panel. */
+  replyMode: ReplyMode;
+  onReplyModeChange: (mode: ReplyMode) => void;
 }
 
 export function ReadingPane({
   messageId, messages, selectedIdx, onNavigate, onDelete, onMarkRead, onFlag, onMove, onClose,
+  replyMode, onReplyModeChange,
 }: ReadingPaneProps) {
   const { accounts, currentAccountIdx } = useAccountsStore();
   const account = currentAccountIdx >= 0 ? accounts[currentAccountIdx] : null;
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const historyRef = useRef<HTMLDivElement>(null);
-  const patchCid = useCidImagePatch();
-  const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward' | null>(null);
+  const getCidMap = useCidImagePatch();
+  const [cidPatchedHtml, setCidPatchedHtml] = useState<string | null>(null);
 
   const { data: message, isLoading: msgLoading, error: msgError } = useQuery({
     queryKey: ['message', account?.id, messageId],
@@ -62,17 +80,23 @@ export function ReadingPane({
     enabled: !!account && !!messageId && !!message?.hasAttachments,
   });
 
-  // Patch CID images after body renders. Re-runs when the reply panel opens
-  // (replyMode dependency) since its "original message" section is a separate
-  // DOM instance of the same content and needs its own patch pass — see
-  // useCidImagePatch's doc comment / regression #3 in the migration prompt.
+  const bodyHtml = message?.body?.content
+    ? (message.body.contentType === 'html' ? sanitizeHtml(message.body.content) : `<pre style="white-space:pre-wrap;font-family:inherit">${message.body.content}</pre>`)
+    : '';
+
+  // Resolve CID images into React state — never mutate the rendered DOM
+  // directly (see useCidImagePatch's doc comment for why that silently
+  // reverted and made images "disappear after a while").
   useEffect(() => {
-    if (!message || !messageId) return;
-    const hasCid = message.body?.contentType === 'html' && message.body?.content?.includes('cid:');
-    if (message.hasAttachments || hasCid) {
-      patchCid(messageId, currentAccountIdx, bodyRef.current, historyRef.current);
-    }
-  }, [message, messageId, currentAccountIdx, patchCid, replyMode]);
+    setCidPatchedHtml(null);
+    if (!message || !messageId || !bodyHtml.includes('cid:')) return;
+    let cancelled = false;
+    getCidMap(messageId, currentAccountIdx, bodyHtml).then((map) => {
+      if (cancelled || Object.keys(map).length === 0) return;
+      setCidPatchedHtml(applyCidPatch(bodyHtml, map));
+    });
+    return () => { cancelled = true; };
+  }, [message, messageId, currentAccountIdx, bodyHtml, getCidMap]);
 
   if (!messageId) {
     return (
@@ -90,9 +114,7 @@ export function ReadingPane({
   const from = message?.from?.emailAddress;
   const initials = getInitials(from?.name || from?.address || '?');
   const avatarColor = getAvatarColor(from?.address || '');
-  const bodyHtml = message?.body?.content
-    ? (message.body.contentType === 'html' ? sanitizeHtml(message.body.content) : `<pre style="white-space:pre-wrap;font-family:inherit">${message.body.content}</pre>`)
-    : '';
+  const renderedBodyHtml = cidPatchedHtml ?? bodyHtml;
 
   const recipients = [
     message?.toRecipients?.length ? 'To: ' + message.toRecipients.map((r) => r.emailAddress.name || r.emailAddress.address).join(', ') : null,
@@ -134,15 +156,15 @@ export function ReadingPane({
 
         {/* Email action toolbar */}
         <div className="email-toolbar">
-          <button className="email-toolbar-btn" onClick={() => setReplyMode('reply')} title="Reply">
+          <button className="email-toolbar-btn" onClick={() => onReplyModeChange('reply')} title="Reply">
             <ReplyIcon size={16} />
             Reply
           </button>
-          <button className="email-toolbar-btn" onClick={() => setReplyMode('replyAll')} title="Reply All">
+          <button className="email-toolbar-btn" onClick={() => onReplyModeChange('replyAll')} title="Reply All">
             <ReplyAllIcon size={16} />
             Reply All
           </button>
-          <button className="email-toolbar-btn" onClick={() => setReplyMode('forward')} title="Forward">
+          <button className="email-toolbar-btn" onClick={() => onReplyModeChange('forward')} title="Forward">
             <ForwardIcon size={16} />
             Forward
           </button>
@@ -177,8 +199,11 @@ export function ReadingPane({
               <div className="email-meta-row">
                 <div className="email-sender-avatar" style={{ background: avatarColor }}>{initials}</div>
                 <div className="email-sender-info">
-                  <div className="email-sender-name" id="emailFrom">{from?.name || from?.address}</div>
-                  <div className="email-sender-address">{from?.address}</div>
+                  <div className="email-sender-name" id="emailFrom">
+                    {from?.name && from.name !== from.address ? (
+                      <>{from.name}<span className="email-sender-address-inline">&lt;{from.address}&gt;</span></>
+                    ) : (from?.address || 'Unknown')}
+                  </div>
                   {recipients.map((r, i) => (
                     <div key={i} className="email-recipients">{r}</div>
                   ))}
@@ -187,52 +212,58 @@ export function ReadingPane({
               </div>
             </div>
 
-            {/* Scrollable body container */}
-            <div className="email-body-container" id="emailBodyContainer">
-              {/* Email body */}
-              <div
-                id="emailBody"
-                ref={bodyRef}
-                className="email-body"
-                dangerouslySetInnerHTML={{ __html: bodyHtml }}
-              />
+            {/* Scrollable body container — hidden while replying/forwarding so the
+                reply panel becomes the single full-height scroll region instead of
+                splitting the pane into two independently-scrolling halves. The
+                original message is still shown, quoted, inside the reply panel. */}
+            {!replyMode && (
+              <div className="email-body-container" id="emailBodyContainer">
+                {/* Attachments — shown above the body so they're seen before scrolling into long messages */}
+                {(message.hasAttachments && attachments.length > 0) && (
+                  <div className="attachments-section" id="attachmentsSection">
+                    <div className="attachments-header">
+                      <AttachIcon size={14} />
+                      {attachments.filter((a) => !a.isInline).length} attachment(s)
+                    </div>
+                    <div className="attachments-list" id="attachmentsList">
+                      {attachments.filter((a) => !a.isInline).map((att) => {
+                        const fileClass = getFileIconClass(getFileExtension(att.name));
+                        return (
+                          <button key={att.id} className="attachment-chip" onClick={() => handleDownload(att)}>
+                            <span className={`attachment-chip-icon ${fileClass}`}>
+                              <AttachmentTypeIcon fileClass={fileClass} size={16} />
+                            </span>
+                            <span>{att.name}</span>
+                            <span style={{ color: 'var(--text-muted)' }}>{formatFileSize(att.size)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {attLoading && message.hasAttachments && (
+                  <div className="attachments-section">
+                    <div className="attachments-header">
+                      <div className="shimmer" style={{ width: 120, height: 14 }} />
+                    </div>
+                  </div>
+                )}
 
-              {/* Attachments */}
-              {(message.hasAttachments && attachments.length > 0) && (
-                <div className="attachments-section" id="attachmentsSection">
-                  <div className="attachments-header">
-                    <AttachIcon size={14} />
-                    {attachments.filter((a) => !a.isInline).length} attachment(s)
-                  </div>
-                  <div className="attachments-list" id="attachmentsList">
-                    {attachments.filter((a) => !a.isInline).map((att) => (
-                      <button key={att.id} className="attachment-chip" onClick={() => handleDownload(att)}>
-                        <span className={`attachment-chip-icon ${getFileIconClass(getFileExtension(att.name))}`}>
-                          <DocumentIcon size={16} />
-                        </span>
-                        <span>{att.name}</span>
-                        <span style={{ color: 'var(--text-muted)' }}>{formatFileSize(att.size)}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {attLoading && message.hasAttachments && (
-                <div className="attachments-section">
-                  <div className="attachments-header">
-                    <div className="shimmer" style={{ width: 120, height: 14 }} />
-                  </div>
-                </div>
-              )}
-            </div>
+                {/* Email body */}
+                <div
+                  id="emailBody"
+                  className="email-body"
+                  dangerouslySetInnerHTML={{ __html: renderedBodyHtml }}
+                />
+              </div>
+            )}
 
-            {/* Reply panel */}
+            {/* Reply panel — fills the pane at full height with one scroll region */}
             {replyMode && (
               <ReplyPanel
                 message={message}
                 mode={replyMode}
-                historyRef={historyRef}
-                onClose={() => setReplyMode(null)}
+                onClose={() => onReplyModeChange(null)}
               />
             )}
           </>

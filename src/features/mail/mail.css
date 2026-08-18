@@ -6,6 +6,98 @@
   overflow: hidden;
 }
 
+/* ==================== MAILBOX SWITCHER ==================== */
+.mailbox-switcher {
+  position: relative;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.mailbox-switcher-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.mailbox-switcher-btn:hover { background: var(--surface-hover); }
+
+.mailbox-switcher-avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 11px;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.mailbox-switcher-info { flex: 1; min-width: 0; }
+
+.mailbox-switcher-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mailbox-switcher-email {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mailbox-switcher-chevron {
+  flex-shrink: 0;
+  fill: var(--text-muted);
+  transition: transform 0.15s;
+}
+
+.mailbox-switcher-chevron.open { transform: rotate(180deg); }
+
+.mailbox-switcher-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  z-index: 400;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.mailbox-switcher-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.mailbox-switcher-item:hover { background: var(--surface-hover); }
+.mailbox-switcher-item.active { background: var(--primary-light); }
+.mailbox-switcher-item .status { flex-shrink: 0; margin-left: auto; }
+
 /* ==================== FOLDER SIDEBAR ==================== */
 .folder-sidebar {
   width: 220px;
@@ -15,7 +107,8 @@
   border-right: 1px solid var(--border);
   overflow-y: auto;
   overflow-x: hidden;
-  flex-shrink: 0;
+  flex: 1;
+  min-height: 0;
   padding-top: 8px;
   padding-bottom: 24px;
 }
@@ -135,7 +228,8 @@
   min-width: 200px;
   border-right: 1px solid var(--border);
   background: var(--surface);
-  flex-shrink: 0;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -256,6 +350,7 @@
 /* Message list scrollable area */
 .message-list-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -394,6 +489,11 @@
 .msg-row-subject-text.unread-subj {
   color: var(--text);
   font-weight: 600;
+}
+
+.msg-row-attach-indicator {
+  flex-shrink: 0;
+  fill: var(--text-secondary);
 }
 
 .msg-row-date {
@@ -564,11 +664,20 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .email-sender-address {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.email-sender-address-inline {
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-left: 4px;
 }
 
 .email-date { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
@@ -600,6 +709,18 @@
 .email-body img { max-width: 100%; height: auto; }
 
 .email-body a { color: var(--primary); }
+
+/* Neutralize quoted-thread indicator lines in received/quoted HTML — some
+   mail clients emit these with a purple/colored border-left; the app's
+   message-tree line should always read as a plain neutral black line. */
+.email-body blockquote,
+.message-history-body blockquote {
+  border-left: 3px solid #000 !important;
+  border-color: #000 !important;
+  padding-left: 12px;
+  margin-left: 0;
+  color: var(--text-secondary);
+}
 
 /* Attachments */
 .attachments-section { flex-shrink: 0; }
@@ -661,6 +782,10 @@
 .attachment-chip-icon.xls svg { fill: #fff; }
 .attachment-chip-icon.img { background: #0078d4; }
 .attachment-chip-icon.img svg { fill: #fff; }
+.attachment-chip-icon.ppt { background: #c43e1c; }
+.attachment-chip-icon.ppt svg { fill: #fff; }
+.attachment-chip-icon.zip { background: #8a8886; }
+.attachment-chip-icon.zip svg { fill: #fff; }
 .attachment-chip-icon.other { background: var(--surface-alt); }
 
 /* Reply panel — the whole panel is the single scroll container (recipients,
@@ -1031,7 +1156,7 @@
   color: var(--text);
   line-height: 1.65;
   font-size: 14px;
-  max-width: 720px;
+  max-width: 100%;
   word-wrap: break-word;
   overflow-x: auto;
 }
@@ -1104,14 +1229,3 @@
   to { transform: rotate(360deg); }
 }
 
-/* Message history (quoted text under reply) */
-.message-history {
-  border-top: 2px solid var(--primary-light);
-  padding: 10px 16px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.message-history-body { font-size: 13px; color: var(--text); }
