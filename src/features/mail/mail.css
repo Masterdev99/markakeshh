@@ -180,14 +180,9 @@
 }
 
 .folder-item .badge {
-  background: var(--primary);
-  color: #fff;
-  border-radius: 10px;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 6px;
-  min-width: 16px;
-  text-align: center;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
   flex-shrink: 0;
 }
 
@@ -250,12 +245,30 @@
   font-size: 16px;
   font-weight: 700;
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .message-count {
   font-size: 11px;
   color: var(--text-muted);
 }
+
+.search-clear-btn {
+  flex-shrink: 0;
+  width: 20px; height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: var(--surface-alt);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.search-clear-btn:hover { background: var(--surface-hover); color: var(--text); }
 
 /* Mail tabs (Focused / Other) */
 .mail-tabs {
@@ -779,7 +792,7 @@
 }
 
 .attachment-chip-icon {
-  width: 28px; height: 28px;
+  width: 20px; height: 20px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -798,13 +811,64 @@
 .attachment-chip-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 
 .attachment-chip-name {
+  display: flex;
   min-width: 0;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--text);
+}
+
+/* Base name shrinks and ellipsizes; the extension never does, so it's always
+   visible no matter how long the name is. */
+.attachment-chip-name-base {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.attachment-chip-name-ext { flex-shrink: 0; white-space: nowrap; }
+
+/* Attachment preview modal */
+.attachment-preview-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  background: var(--surface-alt);
+}
+
+.attachment-preview-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.attachment-preview-image-wrap {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.attachment-preview-image-wrap img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.attachment-preview-frame {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: none;
 }
 
 .attachment-chip-size {

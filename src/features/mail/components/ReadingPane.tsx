@@ -21,6 +21,7 @@ import {
 import { FileTypeIcon, getFileIconKind } from '../../../components/fileTypeIcons';
 import type { Attachment, Recipient } from '../../../types';
 import { ReplyPanel } from './ReplyPanel';
+import { AttachmentPreviewModal } from './AttachmentPreviewModal';
 
 const MAX_VISIBLE_RECIPIENTS = 3;
 
@@ -53,14 +54,17 @@ function RecipientLine({ label, recipients }: { label: string; recipients: Recip
   );
 }
 
-/** Truncates a long filename to a fixed base length while keeping the extension visible, e.g. "Quarterly_Budget_Report_Fin…xlsx". */
-function truncateAttachmentName(name: string, maxBaseLen = 20): string {
+/**
+ * Splits a filename into a (possibly long) base and its extension, rendered
+ * as two separate spans — the base truncates with an ellipsis via CSS as the
+ * chip narrows, while the extension never shrinks. A single fixed-length JS
+ * truncation couldn't guarantee this: on a narrow chip, CSS text-overflow
+ * would still clip whatever it produced, extension included.
+ */
+function splitFileName(name: string): { base: string; ext: string } {
   const dotIdx = name.lastIndexOf('.');
   const hasExt = dotIdx > 0 && dotIdx < name.length - 1;
-  const base = hasExt ? name.slice(0, dotIdx) : name;
-  const ext = hasExt ? name.slice(dotIdx) : '';
-  if (base.length <= maxBaseLen) return name;
-  return `${base.slice(0, maxBaseLen)}…${ext}`;
+  return hasExt ? { base: name.slice(0, dotIdx), ext: name.slice(dotIdx) } : { base: name, ext: '' };
 }
 
 type ReplyMode = 'reply' | 'replyAll' | 'forward' | null;
@@ -84,6 +88,7 @@ export function ReadingPane({
   const account = currentAccountIdx >= 0 ? accounts[currentAccountIdx] : null;
   const getCidMap = useCidImagePatch();
   const [cidPatchedHtml, setCidPatchedHtml] = useState<string | null>(null);
+  const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
 
   const { data: message, isLoading: msgLoading, error: msgError } = useQuery({
     queryKey: ['message', account?.id, messageId],
@@ -234,13 +239,17 @@ export function ReadingPane({
                     <div className="attachments-list" id="attachmentsList">
                       {attachments.filter((a) => !a.isInline).map((att) => {
                         const kind = getFileIconKind(getFileExtension(att.name));
+                        const { base, ext } = splitFileName(att.name);
                         return (
-                          <button key={att.id} className="attachment-chip" onClick={() => handleDownload(att)} title={att.name}>
+                          <button key={att.id} className="attachment-chip" onClick={() => setPreviewAttachment(att)} title={att.name}>
                             <span className={`attachment-chip-icon${kind === 'other' ? ' other' : ''}`}>
-                              {kind === 'other' ? <DocumentIcon size={16} /> : <FileTypeIcon kind={kind} size={28} />}
+                              {kind === 'other' ? <DocumentIcon size={16} /> : <FileTypeIcon kind={kind} size={20} />}
                             </span>
                             <span className="attachment-chip-info">
-                              <span className="attachment-chip-name">{truncateAttachmentName(att.name)}</span>
+                              <span className="attachment-chip-name">
+                                <span className="attachment-chip-name-base">{base}</span>
+                                <span className="attachment-chip-name-ext">{ext}</span>
+                              </span>
                               <span className="attachment-chip-size">{formatFileSize(att.size)}</span>
                             </span>
                           </button>
@@ -277,6 +286,14 @@ export function ReadingPane({
           </>
         ) : null}
       </div>
+
+      {previewAttachment && (
+        <AttachmentPreviewModal
+          attachment={previewAttachment}
+          onClose={() => setPreviewAttachment(null)}
+          onDownload={handleDownload}
+        />
+      )}
     </div>
   );
 }

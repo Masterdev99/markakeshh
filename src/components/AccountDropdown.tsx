@@ -38,10 +38,10 @@ export function AccountDropdown({ onClose, anchorStyle }: AccountDropdownProps) 
     if (confirm('Remove this account?')) removeAccount(idx);
   }
 
-  function handleOpenInNewTab(e: React.MouseEvent, idx: number) {
+  function handleOpenInNewTab(e: React.MouseEvent, acc: { id: string }) {
     e.stopPropagation();
     const url = new URL(window.location.href);
-    url.searchParams.set('accountIdx', String(idx));
+    url.searchParams.set('accountId', acc.id);
     window.open(url.toString(), '_blank');
   }
 
@@ -80,7 +80,7 @@ export function AccountDropdown({ onClose, anchorStyle }: AccountDropdownProps) 
                   <button
                     className="modal-btn secondary"
                     style={{ padding: '3px 6px', fontSize: 11 }}
-                    onClick={(e) => handleOpenInNewTab(e, i)}
+                    onClick={(e) => handleOpenInNewTab(e, acc)}
                     title="Open in new tab"
                   >
                     <svg viewBox="0 0 24 24" width={14} height={14} style={{ fill: 'currentColor' }}>

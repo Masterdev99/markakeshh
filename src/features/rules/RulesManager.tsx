@@ -174,7 +174,7 @@ export function RulesManager({ onClose }: RulesManagerProps) {
   ];
 
   return (
-    <Modal onClose={onClose} id="rulesModal" style={{ width: 800, maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+    <Modal onClose={onClose} id="rulesModal" style={{ width: 700, maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <h2>Rules</h2>
           <button className="modal-close" onClick={onClose}>

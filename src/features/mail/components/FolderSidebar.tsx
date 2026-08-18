@@ -5,15 +5,16 @@
  * Ported from renderFolderSidebar() and related functions at lines 9016–9124.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAccountsStore } from '../../../store/accounts';
 import { useFoldersStore } from '../../../store/folders';
 import { fetchFoldersRecursive, createFolder } from '../../../services/graph/folders';
 import { useToast } from '../../../app/providers/ToastProvider';
+import { Modal } from '../../../components/Modal';
 import {
   InboxIcon, DocumentIcon, ForwardIcon, DeleteIcon, WarningIcon, ArchiveIcon,
-  FolderIcon as FolderGlyph, ChevronDownIcon, AddIcon, MoreHorizontalIcon,
+  FolderIcon as FolderGlyph, ChevronDownIcon, AddIcon, MoreHorizontalIcon, DismissIcon,
 } from '../../../components/icons';
 import type { MailFolder } from '../../../types';
 
@@ -48,6 +49,9 @@ export function FolderSidebar({ onFolderSelect }: FolderSidebarProps) {
   const queryClient = useQueryClient();
 
   const account = currentAccountIdx >= 0 ? accounts[currentAccountIdx] : null;
+  const [createTarget, setCreateTarget] = useState<{ parentId: string | null; parentLabel: string } | null>(null);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const { data: folders = EMPTY_FOLDERS, error, isLoading, refetch } = useQuery({
     queryKey: ['folders', account?.id],
@@ -89,20 +93,30 @@ export function FolderSidebar({ onFolderSelect }: FolderSidebarProps) {
     }
   }
 
-  async function handleCreateFolder(parentId: string | null, parentLabel: string) {
-    const name = prompt(`Create new ${parentId ? 'sub' : 'top-level '}folder${parentId ? ` inside "${parentLabel}"` : ''}:`);
-    if (!name?.trim() || !account) return;
+  function openCreateFolder(parentId: string | null, parentLabel: string) {
+    setNewFolderName('');
+    setCreateTarget({ parentId, parentLabel });
+  }
+
+  async function handleCreateFolder() {
+    const name = newFolderName.trim();
+    if (!name || !account || !createTarget) return;
+    setCreating(true);
     try {
-      const newFolder = await createFolder(name.trim(), account.accessToken, currentAccountIdx, parentId ?? undefined);
+      const newFolder = await createFolder(name, account.accessToken, currentAccountIdx, createTarget.parentId ?? undefined);
       toast(`Folder "${newFolder.displayName}" created`, 'success');
-      if (parentId) toggleFolderExpanded(parentId); // auto-expand parent
+      if (createTarget.parentId) toggleFolderExpanded(createTarget.parentId); // auto-expand parent
       queryClient.invalidateQueries({ queryKey: ['folders', account.id] });
+      setCreateTarget(null);
     } catch (e) {
       toast('Failed to create folder: ' + (e as Error).message, 'error');
+    } finally {
+      setCreating(false);
     }
   }
 
   return (
+    <>
     <div className="folder-sidebar">
       {/* System folders */}
       <div className="folder-section">
@@ -137,7 +151,7 @@ export function FolderSidebar({ onFolderSelect }: FolderSidebarProps) {
               type="button"
               className="folder-section-add-btn"
               title="New folder"
-              onClick={(e) => { e.stopPropagation(); handleCreateFolder(null, 'top level'); }}
+              onClick={(e) => { e.stopPropagation(); openCreateFolder(null, 'top level'); }}
             >
               <AddIcon size={14} />
             </button>
@@ -177,7 +191,7 @@ export function FolderSidebar({ onFolderSelect }: FolderSidebarProps) {
                   title="Folder options"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleCreateFolder(f.id, f.displayName);
+                    openCreateFolder(f.id, f.displayName);
                   }}
                 >
                   <MoreHorizontalIcon size={16} />
@@ -214,6 +228,39 @@ export function FolderSidebar({ onFolderSelect }: FolderSidebarProps) {
         </div>
       )}
     </div>
+
+    {createTarget && (
+      <Modal onClose={() => setCreateTarget(null)} style={{ width: 380, maxWidth: '92vw' }}>
+        <div className="modal-header">
+          <h2>New folder</h2>
+          <button className="modal-close" onClick={() => setCreateTarget(null)}>
+            <DismissIcon size={18} />
+          </button>
+        </div>
+        <div className="modal-body">
+          <div className="form-group">
+            <label className="form-label">
+              {createTarget.parentId ? `Inside "${createTarget.parentLabel}"` : 'Top-level folder'}
+            </label>
+            <input
+              className="form-input"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="Folder name"
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
+            />
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="modal-btn secondary" onClick={() => setCreateTarget(null)}>Cancel</button>
+          <button className="modal-btn primary" onClick={handleCreateFolder} disabled={!newFolderName.trim() || creating}>
+            {creating ? 'Creating…' : 'Create'}
+          </button>
+        </div>
+      </Modal>
+    )}
+    </>
   );
 }
 

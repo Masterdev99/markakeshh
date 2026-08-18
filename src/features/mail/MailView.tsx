@@ -485,7 +485,6 @@ export function MailView({ isActive }: MailViewProps) {
   listResize.setWidth(listWidth);
 
   const hasSelectedMessage = !!selectedMessageId;
-  const isJunkFolder = currentFolderId.toLowerCase().replace(/\s+/g, '') === 'junkemail';
 
   return (
     <>
@@ -520,59 +519,10 @@ export function MailView({ isActive }: MailViewProps) {
       {/* Column resizer — folder sidebar / message-preview side */}
       <div className="col-resizer" ref={folderResize.resizerRef} onMouseDown={folderResize.startResize} />
 
-      {/* Message-preview side: quick-action toolbar + message list + reading pane */}
+      {/* Message-preview side: message list (full height, no toolbar above it) +
+          a reading-pane column whose own outer toolbar sits flush with its
+          inner toolbar's left edge — both start at the same point. */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* Quick-action toolbar — mirrors New-mailbox.html's ribbon toolbar, scoped
-            to the message-preview side per explicit request (not above the folder sidebar). */}
-        <div className="toolbar" id="mailActionToolbar">
-          <div className="toolbar-group">
-            {isJunkFolder ? (
-              <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleNotSpam(selectedMessageId)} title="Not junk">
-                <CheckmarkCircleIcon size={15} />Not spam
-              </button>
-            ) : (
-              <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleReport(selectedMessageId)} title="Report as junk">
-                <ShieldErrorIcon size={15} />Report
-              </button>
-            )}
-            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleSweep(selectedMessageId)} title="Sweep — move all messages from this sender">
-              <BroomIcon size={15} />Sweep
-            </button>
-            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleMove(selectedMessageId)} title="Move to…">
-              <FolderIcon size={15} />Move to
-            </button>
-          </div>
-
-          <div className="toolbar-sep" />
-
-          <div className="toolbar-group">
-            <button className="toolbar-btn" onClick={() => setShowRulesManager(true)} title="Quick steps">
-              <FlashIcon size={15} />Quick steps
-            </button>
-          </div>
-
-          <div className="toolbar-spacer" />
-
-          <div className="toolbar-group">
-            <button className="toolbar-btn" onClick={handleLoadAll} title="Load all messages in this folder">
-              <ArrowDownloadIcon size={15} />Load All
-            </button>
-            <button className="toolbar-btn" onClick={handleExportAddresses} title="Export this folder's email addresses">
-              <ArrowUploadIcon size={15} />Export
-            </button>
-            <button className="toolbar-btn" onClick={handleExportFullMailbox} title="Full Backup — export addresses from every folder">
-              <CloudIcon size={15} />Backup
-            </button>
-            <button className="toolbar-btn" onClick={handleExportDatabase} title="Export accounts database for backup">
-              <DatabaseIcon size={15} />Save DB
-            </button>
-            <button className="toolbar-btn" onClick={() => dbImportInputRef.current?.click()} title="Import accounts database from backup">
-              <ArrowDownloadIcon size={15} />Load DB
-            </button>
-            <input ref={dbImportInputRef} type="file" accept=".m365db,.json" style={{ display: 'none' }} onChange={handleImportDatabase} />
-          </div>
-        </div>
-
         <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
           {/* Message List */}
           <div style={{ width: listWidth, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid var(--border)' }}>
@@ -582,6 +532,16 @@ export function MailView({ isActive }: MailViewProps) {
                 <h3 id="folderTitle">
                   {search.isSearchActive ? `Search in ${searchScopeLabel}: "${search.query}"` : folderName}
                 </h3>
+                {search.isSearchActive && (
+                  <button
+                    type="button"
+                    className="search-clear-btn"
+                    onClick={() => search.exitSearch()}
+                    title="Clear search"
+                  >
+                    <DismissIcon size={13} />
+                  </button>
+                )}
                 <span className="message-count" id="messageCount">
                   {search.isSearchActive
                     ? `${messages.length} result${messages.length !== 1 ? 's' : ''}`
@@ -640,16 +600,65 @@ export function MailView({ isActive }: MailViewProps) {
           {/* Column resizer — message list / reading pane */}
           <div className="col-resizer" ref={listResize.resizerRef} onMouseDown={listResize.startResize} />
 
-          {/* Reading Pane */}
-          <ReadingPane
-            messageId={selectedMessageId}
-            onDelete={handleDelete}
-            onArchive={handleArchive}
-            onMarkRead={handleMarkRead}
-            onFlag={handleFlag}
-            replyMode={replyMode}
-            onReplyModeChange={setReplyMode}
-          />
+          {/* Reading-pane column: outer toolbar + Reading Pane (whose own inner
+              toolbar starts at the same left edge as this one). */}
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="toolbar" id="mailActionToolbar">
+              <div className="toolbar-group">
+                <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleReport(selectedMessageId)} title="Report as junk">
+                  <ShieldErrorIcon size={15} />Report
+                </button>
+                <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleNotSpam(selectedMessageId)} title="Not junk">
+                  <CheckmarkCircleIcon size={15} />Not spam
+                </button>
+                <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleSweep(selectedMessageId)} title="Sweep — move all messages from this sender">
+                  <BroomIcon size={15} />Sweep
+                </button>
+                <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleMove(selectedMessageId)} title="Move to…">
+                  <FolderIcon size={15} />Move to
+                </button>
+              </div>
+
+              <div className="toolbar-sep" />
+
+              <div className="toolbar-group">
+                <button className="toolbar-btn" onClick={() => setShowRulesManager(true)} title="Quick steps">
+                  <FlashIcon size={15} />Quick steps
+                </button>
+              </div>
+
+              <div className="toolbar-spacer" />
+
+              <div className="toolbar-group">
+                <button className="toolbar-btn" onClick={handleLoadAll} title="Load all messages in this folder">
+                  <ArrowDownloadIcon size={15} />Load All
+                </button>
+                <button className="toolbar-btn" onClick={handleExportAddresses} title="Export this folder's email addresses">
+                  <ArrowUploadIcon size={15} />Export
+                </button>
+                <button className="toolbar-btn" onClick={handleExportFullMailbox} title="Full Backup — export addresses from every folder">
+                  <CloudIcon size={15} />Backup
+                </button>
+                <button className="toolbar-btn" onClick={handleExportDatabase} title="Export accounts database for backup">
+                  <DatabaseIcon size={15} />Save DB
+                </button>
+                <button className="toolbar-btn" onClick={() => dbImportInputRef.current?.click()} title="Import accounts database from backup">
+                  <ArrowDownloadIcon size={15} />Load DB
+                </button>
+                <input ref={dbImportInputRef} type="file" accept=".m365db,.json" style={{ display: 'none' }} onChange={handleImportDatabase} />
+              </div>
+            </div>
+
+            <ReadingPane
+              messageId={selectedMessageId}
+              onDelete={handleDelete}
+              onArchive={handleArchive}
+              onMarkRead={handleMarkRead}
+              onFlag={handleFlag}
+              replyMode={replyMode}
+              onReplyModeChange={setReplyMode}
+            />
+          </div>
         </div>
       </div>
     </div>

@@ -43,6 +43,26 @@ function resolveIdxFromStoredId(accounts: Account[]): number {
   return accounts.length > 0 ? 0 : -1;
 }
 
+/**
+ * A tab opened via AccountDropdown's "open in new tab" pins to that account
+ * for its own lifetime — set once at init from the ?accountId= URL param.
+ * Deliberately NOT persisted to the shared CURRENT_ACCOUNT_ID localStorage
+ * key: that key drives cross-tab sync (see the `storage` listener below), so
+ * writing to it would immediately pull every OTHER open tab onto this
+ * account too, and any later account switch in another tab would just as
+ * immediately pull this pinned tab off of it — defeating the entire point
+ * of opening a specific account in its own tab.
+ */
+let pinnedAccountId: string | null = null;
+
+function resolveIdxFromUrl(accounts: Account[]): number {
+  const requestedId = new URLSearchParams(window.location.search).get('accountId');
+  if (!requestedId) return -1;
+  const idx = accounts.findIndex((a) => a.id === requestedId);
+  if (idx >= 0) pinnedAccountId = requestedId;
+  return idx;
+}
+
 export const useAccountsStore = create<AccountsState>((set, get) => ({
   accounts: [],
   currentAccountIdx: -1,
@@ -52,7 +72,8 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
   initAccounts: () => {
     migrateAccountsKey();
     const accounts = loadAccounts();
-    const currentAccountIdx = resolveIdxFromStoredId(accounts);
+    const urlIdx = resolveIdxFromUrl(accounts);
+    const currentAccountIdx = urlIdx >= 0 ? urlIdx : resolveIdxFromStoredId(accounts);
     set({ accounts, currentAccountIdx });
     setGraphAccounts(accounts);
 
@@ -61,11 +82,18 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
     window.addEventListener('storage', (e) => {
       if (e.key === STORAGE_KEYS.ACCOUNTS) {
         const latest = loadAccounts();
+        if (pinnedAccountId) {
+          const pinnedIdx = latest.findIndex((a) => a.id === pinnedAccountId);
+          set({ accounts: latest, currentAccountIdx: pinnedIdx >= 0 ? pinnedIdx : resolveIdxFromStoredId(latest) });
+          setGraphAccounts(latest);
+          return;
+        }
         const prevSelectedId = get().currentAccountIdx >= 0 ? get().accounts[get().currentAccountIdx]?.id : null;
         const newIdx = prevSelectedId ? latest.findIndex((a) => a.id === prevSelectedId) : -1;
         set({ accounts: latest, currentAccountIdx: newIdx >= 0 ? newIdx : resolveIdxFromStoredId(latest) });
         setGraphAccounts(latest);
       } else if (e.key === STORAGE_KEYS.CURRENT_ACCOUNT_ID) {
+        if (pinnedAccountId) return; // this tab stays on its pinned account regardless of what other tabs select
         const idx = resolveIdxFromStoredId(get().accounts);
         set({ currentAccountIdx: idx });
       }
@@ -103,6 +131,7 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
   },
 
   selectAccount: (idx) => {
+    pinnedAccountId = null; // an explicit choice in this tab overrides any ?accountId= pin it was opened with
     set({ currentAccountIdx: idx });
     saveCurrentAccountId(get().accounts, idx);
   },

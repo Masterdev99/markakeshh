@@ -5,8 +5,15 @@
 export function getInitials(name?: string | null): string {
   if (!name) return '?';
   const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0][0].toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  // Some display names lead with a symbol, emoji, or digit (e.g. "*John Doe",
+  // "007 Ops") — find each part's first actual letter rather than blindly
+  // taking its first character, so those don't end up as the avatar initial.
+  const letters = parts
+    .map((p) => p.match(/\p{L}/u)?.[0])
+    .filter((c): c is string => !!c);
+  if (letters.length === 0) return '?';
+  if (letters.length === 1) return letters[0].toUpperCase();
+  return (letters[0] + letters[letters.length - 1]).toUpperCase();
 }
 
 const AVATAR_COLORS = [
