@@ -1,7 +1,26 @@
 /**
- * Folders Graph API service.
+ * Folders Graph API service — rebuilt against the official Microsoft Graph
+ * documentation rather than ported line-for-line from the legacy app:
+ *   - List mailFolders: https://learn.microsoft.com/en-us/graph/api/user-list-mailfolders
+ *   - List childFolders: https://learn.microsoft.com/en-us/graph/api/mailfolder-list-childfolders
+ *   - mailFolder resource: https://learn.microsoft.com/en-us/graph/api/resources/mailfolder
  *
- * Ported from lines 8926–9125.
+ * Two things the docs make explicit that are easy to get wrong:
+ *
+ * 1. The default page size for both of these list endpoints is only 10
+ *    items — not 100, not "whatever fits." Without an explicit $top AND
+ *    without following @odata.nextLink, a mailbox with more than 10 folders
+ *    at one level (trivially common) silently loses folders. Both are
+ *    handled here (fetchAllPages follows nextLink; $top is set explicitly).
+ *
+ * 2. There is no bulk "get the whole tree in one call" endpoint. The docs
+ *    say so directly: "This operation doesn't return all mail folders in a
+ *    mailbox, only the child folders of the root folder. To return all mail
+ *    folders in a mailbox, each child folder must be traversed separately."
+ *    $expand=childFolders exists as a relationship but Graph doesn't
+ *    document reliable nested-pagination behavior for it at arbitrary
+ *    depth, so the safe, doc-sanctioned approach is still a plain recursive
+ *    walk over childFolders — which is what this does.
  */
 
 import { graphApi } from './client';
@@ -12,7 +31,15 @@ interface FolderListResponse {
   '@odata.nextLink'?: string;
 }
 
-/** Follows @odata.nextLink so a folder list with more than $top items (>100 folders at one level) isn't silently truncated to its first page. */
+// All five are documented mailFolder properties this app actually uses.
+// (parentFolderId isn't read anywhere — the tree is built by recursing
+// through childFolders, not by reassembling it from parent ids — but it's
+// an ordinary, always-present property per every example in the docs, so
+// there's no reason to omit it.)
+const FOLDER_SELECT = 'id,displayName,parentFolderId,childFolderCount,unreadItemCount,totalItemCount,isHidden';
+const FOLDER_PAGE_SIZE = 100;
+
+/** Follows @odata.nextLink so a folder list longer than one page (the API's default page size is just 10 items) isn't silently truncated. */
 async function fetchAllPages(url: string, token: string, accountIdx: number): Promise<MailFolder[]> {
   const all: MailFolder[] = [];
   let next: string | null = url;
@@ -24,69 +51,54 @@ async function fetchAllPages(url: string, token: string, accountIdx: number): Pr
   return all;
 }
 
-// $select intentionally matches New-mailbox.html's list exactly (id,
-// displayName, totalItemCount, unreadItemCount, childFolderCount) — no
-// parentFolderId. That field isn't read anywhere on a MailFolder (the tree
-// is built by recursing through childFolders, not by reassembling it from
-// parent ids), and requesting it appears to be rejected outright by Graph
-// for some mailbox types, turning every single folder request for that
-// account into a hard, non-retryable 400 — no amount of retry/backoff
-// resilience fixes a request that's malformed for the account in the first
-// place. This is almost certainly why those specific accounts fetched fine
-// in the legacy app (which never asked for this field) but never worked in
-// this port.
-const FOLDER_SELECT = 'id,displayName,totalItemCount,unreadItemCount,childFolderCount';
-
+/** GET /me/mailFolders — the folders directly under the mailbox root (not the full tree). */
 export async function fetchRootFolders(token: string, accountIdx: number): Promise<MailFolder[]> {
-  return fetchAllPages(
-    `/me/mailFolders?$top=100&$select=${FOLDER_SELECT}`,
-    token,
-    accountIdx
-  );
+  return fetchAllPages(`/me/mailFolders?$top=${FOLDER_PAGE_SIZE}&$select=${FOLDER_SELECT}`, token, accountIdx);
 }
 
+/** GET /me/mailFolders/{id}/childFolders — one folder's immediate children. */
 export async function fetchChildFolders(
   parentId: string,
   token: string,
   accountIdx: number
 ): Promise<MailFolder[]> {
-  return fetchAllPages(
-    `/me/mailFolders/${parentId}/childFolders?$top=100&$select=${FOLDER_SELECT}`,
-    token,
-    accountIdx
-  );
+  return fetchAllPages(`/me/mailFolders/${parentId}/childFolders?$top=${FOLDER_PAGE_SIZE}&$select=${FOLDER_SELECT}`, token, accountIdx);
 }
 
 /**
- * Max simultaneous in-flight child-folder requests across the whole
- * recursive walk. Set to 1 — fully sequential, one folder-list request in
- * flight at a time — to exactly match New-mailbox.html's recursion, which
- * is a plain `for...of` loop with `await` inside (lines 9313–9324): never
- * more than one request for the whole tree. Some accounts appear to sit
- * behind tenant-side throttling tight enough that even a handful of
- * concurrent requests trips it, and this endpoint is walked at every
- * account switch — sequential trades a bit of speed on wide folder trees
- * for matching the concurrency profile that's actually proven to work.
+ * Max simultaneous in-flight folder-list requests across the whole
+ * recursive walk. Kept at 1 — fully sequential — to match the concurrency
+ * profile of New-mailbox.html's own recursion (a plain `for...of` loop with
+ * `await` inside: never more than one request in flight for the whole
+ * tree), which is the version known to work against accounts sitting
+ * behind tighter tenant-side throttling than a few concurrent requests can
+ * tolerate.
  */
 const MAX_CONCURRENT_FOLDER_FETCHES = 1;
 
 /**
- * Recursively fetch all folders up to an arbitrary depth.
- * Mirrors fetchFoldersRecursive() at lines 9294–9363 of New-mailbox.html —
- * notably its error handling: that version wraps its *own* list-fetch in a
- * try/catch (not just its recursive calls into children), so every
- * recursion level is self-protecting and the function never throws, only
- * ever returns whatever it managed to gather. An earlier version of this
- * port only caught failures in the recursive call to children, leaving the
- * outermost (root-level) fetch unprotected — so on an account where the
- * root /me/mailFolders call hit so much as one transient error, the whole
- * tree came back empty with a hard failure, where the legacy app just
- * quietly moved on. Catching at every level, root included, matches that
- * resilience.
+ * Recursively fetches the full folder tree.
  *
- * Runs with bounded concurrency (a shared semaphore, not per-level Promise.all)
- * so a wide tree doesn't fire dozens of parallel requests and trip Graph's
- * rate limiter.
+ * Error handling is deliberately asymmetric between the root and deeper
+ * levels:
+ *
+ *  - A failure fetching a folder's CHILDREN is caught and pruned to an
+ *    empty array for just that branch — one bad or throttled subfolder
+ *    doesn't blank out every other folder in the tree.
+ *  - A failure fetching the ROOT list is allowed to throw. An earlier
+ *    version of this caught that too and silently returned an empty tree —
+ *    which meant an account with a genuine, persistent problem (expired
+ *    consent, missing permission, anything non-transient) showed an empty
+ *    folder sidebar with *no visible explanation*, indistinguishable from
+ *    an account that simply has no folders. Throwing here lets it surface
+ *    through react-query's error state, where the UI shows the actual
+ *    Graph error message and a Retry button (see FolderSidebar) — you can't
+ *    fix what you can't see.
+ *
+ * Both still benefit from the live-sync-triggered refetch in MailView
+ * (invalidates ['folders', account.id] on new mail and on first sync),
+ * which gives a transient root failure another attempt without the user
+ * needing to notice and click Retry themselves.
  */
 export async function fetchFoldersRecursive(
   token: string,
@@ -108,21 +120,23 @@ export async function fetchFoldersRecursive(
     }
   }
 
-  async function walk(pid: string | undefined): Promise<MailFolder[]> {
+  async function walk(pid: string | undefined, isRoot: boolean): Promise<MailFolder[]> {
     let folders: MailFolder[];
-    try {
-      folders = pid
-        ? await fetchChildFolders(pid, token, accountIdx)
-        : await fetchRootFolders(token, accountIdx);
-    } catch (e) {
-      console.warn(`[folders] Failed to fetch folders for ${pid ?? 'root'}:`, (e as Error).message);
-      return [];
+    if (isRoot) {
+      folders = await fetchRootFolders(token, accountIdx); // let errors propagate — see doc comment
+    } else {
+      try {
+        folders = await fetchChildFolders(pid as string, token, accountIdx);
+      } catch (e) {
+        console.warn(`[folders] Failed to fetch children of folder ${pid}:`, (e as Error).message);
+        return [];
+      }
     }
 
     await Promise.all(
       folders.map(async (folder) => {
         if ((folder.childFolderCount ?? 0) > 0) {
-          folder.children = await withLimit(() => walk(folder.id));
+          folder.children = await withLimit(() => walk(folder.id, false));
         }
       })
     );
@@ -130,7 +144,7 @@ export async function fetchFoldersRecursive(
     return folders;
   }
 
-  return walk(parentId);
+  return walk(parentId, parentId === undefined);
 }
 
 export async function createFolder(

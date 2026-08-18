@@ -287,8 +287,13 @@ export async function updateDraftMessage(
 
 // ==================== LIVE SYNC (poll) ====================
 
-const SYNC_SELECT =
-  'id,subject,bodyPreview,from,toRecipients,receivedDateTime,isRead,hasAttachments,importance,flag,categories';
+// Deliberately minimal: this is the most frequently-issued request in the
+// app (every live-sync poll, as often as every 15s) and its result is never
+// rendered — only used to detect new-message ids and, for rule matching, to
+// read hasAttachments/isRead (see useLiveSync's applyLocalRuleActions,
+// which does its own separate detailed fetch per matched candidate for
+// subject/from/body/recipients rather than needing them here).
+const SYNC_SELECT = 'id,receivedDateTime,isRead,hasAttachments';
 
 export async function fetchLatestMessages(
   folderId: string,

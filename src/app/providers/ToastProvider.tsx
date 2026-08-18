@@ -7,14 +7,20 @@ import React, { createContext, useCallback, useContext, useRef, useState } from 
 
 type ToastType = 'info' | 'success' | 'error';
 
+interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface ToastItem {
   id: number;
   msg: string;
   type: ToastType;
+  action?: ToastAction;
 }
 
 interface ToastContextValue {
-  toast: (msg: string, type?: ToastType) => void;
+  toast: (msg: string, type?: ToastType, action?: ToastAction) => void;
 }
 
 const ToastContext = createContext<ToastContextValue>({ toast: () => {} });
@@ -31,9 +37,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     if (t) { clearTimeout(t); timers.current.delete(id); }
   }, []);
 
-  const toast = useCallback((msg: string, type: ToastType = 'info') => {
+  const toast = useCallback((msg: string, type: ToastType = 'info', action?: ToastAction) => {
     const id = ++_counter;
-    setToasts((prev) => [...prev, { id, msg, type }]);
+    setToasts((prev) => [...prev, { id, msg, type, action }]);
     const t = setTimeout(() => {
       setToasts((prev) => prev.filter((x) => x.id !== id));
       timers.current.delete(id);
@@ -57,6 +63,15 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-8h2zm0-10h-2V7h2z" /></svg>
             )}
             <span style={{ flex: 1 }}>{t.msg}</span>
+            {t.action && (
+              <button
+                type="button"
+                className="toast-action-btn"
+                onClick={(e) => { e.stopPropagation(); t.action!.onClick(); dismiss(t.id); }}
+              >
+                {t.action.label}
+              </button>
+            )}
           </div>
         ))}
       </div>

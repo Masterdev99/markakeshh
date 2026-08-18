@@ -24,6 +24,27 @@ const SAFE_ATTRS = new Set([
 // Attributes whose values must never contain javascript: or data: URIs
 const URL_ATTRS = new Set(['href', 'src', 'action', 'background', 'lowsrc', 'dynsrc']);
 
+// CSS properties stripped from inline `style` attributes. `position` lets an
+// email set position:fixed/sticky with an inline style attribute, which
+// escapes normal document flow and paints relative to the viewport instead
+// of its actual container — a stray element from an email body can end up
+// covering real app chrome (menus, buttons, the message-list/reading-pane
+// resizer) regardless of DOM nesting. `z-index` only matters paired with a
+// positioning scheme, so stripping both closes the escape rather than just
+// making it harder to trigger. Ordinary formatting (colors, fonts, borders,
+// table/box layout) never needs either property.
+const FORBIDDEN_STYLE_PROPS = new Set(['position', 'z-index']);
+
+function sanitizeStyleValue(value: string): string {
+  return value
+    .split(';')
+    .filter((decl) => {
+      const prop = decl.split(':')[0]?.trim().toLowerCase();
+      return prop && !FORBIDDEN_STYLE_PROPS.has(prop);
+    })
+    .join(';');
+}
+
 function cleanNode(node: Node, baseHref: string | null): void {
   const toRemove: Node[] = [];
   for (const child of Array.from(node.childNodes)) {
@@ -59,6 +80,9 @@ function cleanNode(node: Node, baseHref: string | null): void {
               el.setAttribute(attr, new URL(raw, baseHref).href);
             } catch { /* leave as-is if unresolvable */ }
           }
+        }
+        if (lattr === 'style') {
+          el.setAttribute(attr, sanitizeStyleValue(el.getAttribute(attr) || ''));
         }
       }
 

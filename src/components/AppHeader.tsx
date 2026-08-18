@@ -82,6 +82,15 @@ export function AppHeader({ currentApp, onSwitchApp }: AppHeaderProps) {
     setSearchValue('');
   }
 
+  // Exiting search can also happen elsewhere (e.g. the message list header's
+  // own clear button just calls search.exitSearch() directly, with no way to
+  // reach this component's local input state) — react to the shared store
+  // instead of only handling it locally, so the box can't be left showing
+  // stale typed text after search was cleared some other way.
+  useEffect(() => {
+    if (!search.isSearchActive) setSearchValue('');
+  }, [search.isSearchActive]);
+
   function pickScope(type: 'all' | 'current' | 'subfolders' | 'folder', folderId?: string, folderName?: string) {
     search.setScope({ type, folderId: folderId ?? null, folderName: folderName ?? null });
     setScopeMenuOpen(false);
@@ -185,11 +194,12 @@ export function AppHeader({ currentApp, onSwitchApp }: AppHeaderProps) {
             <SearchIcon size={16} />
           )}
           <input
-            type="search"
+            type="text"
             placeholder="Search"
             value={searchValue}
             onChange={(e) => setSearchValue(e.target.value)}
             id="globalSearchInput"
+            autoComplete="off"
           />
           <button type="button" className="search-box-icon-btn" title="Search" onClick={triggerSearch}>
             <SearchIcon size={15} />

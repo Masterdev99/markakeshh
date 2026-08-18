@@ -226,13 +226,15 @@ body {
 .header-search-box {
   display: flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.22);
   border-radius: 6px;
   padding: 0 12px;
   height: 34px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   transition: all 0.15s;
 }
+
+.header-search-box:hover { background: rgba(255, 255, 255, 0.28); }
 
 .header-search-box:focus-within {
   background: #fff;
@@ -869,6 +871,20 @@ body {
 .toast.success { background: #107c10; }
 .toast.error { background: #c50f1f; }
 .toast.info { background: #0f6cbd; }
+
+.toast-action-btn {
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.toast-action-btn:hover { background: rgba(255, 255, 255, 0.24); }
 
 @keyframes toastIn {
   from { opacity: 0; transform: translateY(8px); }

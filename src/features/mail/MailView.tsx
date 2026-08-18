@@ -3,7 +3,7 @@
  * Orchestrates data loading, bulk actions, live sync, and panel resizing.
  */
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import type { ChangeEvent } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAccountsStore } from '../../store/accounts';
@@ -83,7 +83,12 @@ export function MailView({ isActive }: MailViewProps) {
   const account = currentAccountIdx >= 0 ? accounts[currentAccountIdx] : null;
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [folderName, setFolderName] = useState('Inbox');
-  const allFolders = flattenFolders(folders);
+  // Memoized so it's a stable reference across renders that don't touch
+  // `folders` — it flows into useLiveSync (via SyncStatusIndicator), which
+  // already reads it through a ref rather than a dependency, but a stable
+  // array here means that ref only ever needs updating when the folder tree
+  // actually changed, not on every unrelated MailView render.
+  const allFolders = useMemo(() => flattenFolders(folders), [folders]);
   const [showCompose, setShowCompose] = useState(false);
   const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward' | null>(null);
 
@@ -504,11 +509,11 @@ export function MailView({ isActive }: MailViewProps) {
                     <DismissIcon size={13} />
                   </button>
                 )}
-                <span className="message-count" id="messageCount">
-                  {search.isSearchActive
-                    ? `${messages.length} result${messages.length !== 1 ? 's' : ''}`
-                    : `${messages.length}${hasNextPage ? '+' : ''} message${messages.length !== 1 ? 's' : ''}`}
-                </span>
+                {search.isSearchActive && (
+                  <span className="message-count" id="messageCount">
+                    {messages.length} result{messages.length !== 1 ? 's' : ''}
+                  </span>
+                )}
               </div>
               <SyncStatusIndicator
                 account={account}
@@ -529,8 +534,13 @@ export function MailView({ isActive }: MailViewProps) {
                   // way back. Refetching react-query's already-open ['folders']
                   // query here is the same coupling.
                   queryClient.invalidateQueries({ queryKey: ['folders', account?.id] });
-                  if (newMsgs.length === 1) toast(`New: ${newMsgs[0].subject || '(No subject)'}`, 'info');
-                  else toast(`${newMsgs.length} new messages`, 'info');
+                  // One toast per message ("1 new message"), not a combined
+                  // "N new messages" total — each with its own View action
+                  // that jumps straight to that message, since a summed-up
+                  // count doesn't tell you which message to look at.
+                  newMsgs.forEach((m) => {
+                    toast('1 new message', 'info', { label: 'View', onClick: () => setSelectedMessageId(m.id) });
+                  });
                 }}
                 onFirstSync={() => {
                   // Mirrors the OTHER trigger for New-mailbox.html's loadAllFolders()

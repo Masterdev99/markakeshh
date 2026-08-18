@@ -24,6 +24,7 @@ export interface MailFolder {
   totalItemCount: number;
   childFolderCount?: number;
   parentFolderId?: string;
+  isHidden?: boolean;
   children?: MailFolder[];
   isExpanded?: boolean;
 }

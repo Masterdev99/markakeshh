@@ -16,16 +16,15 @@
  * component means only this pill's own DOM node is touched, not the message
  * list or reading pane.
  *
- * The action-in-progress override text (set by MailView's Load All / Export
- * / Backup / Save DB / Load DB / Sweep handlers) lives in the shared
- * useActionStatusStore rather than local state here, because it's also
- * shown a second time at the far right of the toolbar those actions live in
- * — see ToolbarActionStatus below.
+ * This pill shows ONLY sync info (never the Load All / Export / Backup /
+ * Save DB / Load DB / Sweep action-in-progress text) — that text lives
+ * entirely in ToolbarActionStatus, on the far right of the toolbar those
+ * actions live in. They used to share one line, which meant an unrelated
+ * export made the sync pill lie about what it was actually doing.
  */
 import { useEffect, useState } from 'react';
 import { useLiveSync } from '../hooks/useLiveSync';
 import { useActionStatusStore } from '../../../store/actionStatus';
-import { getMailSyncIntervalSeconds } from '../../../services/storage/syncSettings';
 import type { Account, Message } from '../../../types';
 
 interface SyncStatusIndicatorProps {
@@ -39,34 +38,25 @@ interface SyncStatusIndicatorProps {
   onFirstSync?: () => void;
 }
 
-/** "Synced now" right after a tick, then a live per-second countdown to the next one. */
-function getSyncLabel(syncState: 'checking' | 'synced' | 'error', lastSyncedAt: Date | null, intervalSeconds: number, nowMs: number): string {
+/** "Synced now" right after a tick, then a live per-second count-up of seconds since. */
+function getSyncLabel(syncState: 'checking' | 'synced' | 'error', lastSyncedAt: Date | null, nowMs: number): string {
   if (syncState === 'error') return 'Sync error — retrying';
   if (!lastSyncedAt) return 'Live sync active';
   const elapsedSecs = Math.floor((nowMs - lastSyncedAt.getTime()) / 1000);
   if (elapsedSecs < 2) return 'Synced now';
-  const remaining = Math.max(0, intervalSeconds - elapsedSecs);
-  return `Next sync in ${remaining}s`;
+  return `Last synced ${elapsedSecs}s ago`;
 }
 
 export function SyncStatusIndicator({ account, accountIdx, currentFolderId, allFolders, isActive, onNewMessages, onFirstSync }: SyncStatusIndicatorProps) {
   const [syncState, setSyncState] = useState<'checking' | 'synced' | 'error'>('synced');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
-  const statusOverride = useActionStatusStore((s) => s.text);
-  const [intervalSeconds, setIntervalSecondsState] = useState(getMailSyncIntervalSeconds);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
-  // Drives the "Next sync in Ns" countdown — a 1s tick touching only this
+  // Drives the "Last synced Ns ago" count-up — a 1s tick touching only this
   // small leaf component, not the rest of the mail view (see file doc comment).
   useEffect(() => {
     const id = setInterval(() => setNowMs(Date.now()), 1_000);
     return () => clearInterval(id);
-  }, []);
-
-  useEffect(() => {
-    const handler = () => setIntervalSecondsState(getMailSyncIntervalSeconds());
-    window.addEventListener('outlook:mail-sync-interval-changed', handler);
-    return () => window.removeEventListener('outlook:mail-sync-interval-changed', handler);
   }, []);
 
   useLiveSync({
@@ -86,10 +76,10 @@ export function SyncStatusIndicator({ account, accountIdx, currentFolderId, allF
   return (
     <div className="sync-indicator" id="syncStatus" style={{ paddingRight: 0 }} title={lastSyncedAt ? `Last synced ${lastSyncedAt.toLocaleTimeString()}` : undefined}>
       {/* The dot spins during a "checking" tick, but the label always
-          shows the countdown/refreshed state rather than flashing to a
+          shows the count-up/refreshed state rather than flashing to a
           "Syncing…" processing state on every poll. */}
-      <div className={`dot${statusOverride || syncState === 'checking' ? ' spinning' : syncState === 'error' ? ' error' : ''}`} />
-      {statusOverride ?? getSyncLabel(syncState, lastSyncedAt, intervalSeconds, nowMs)}
+      <div className={`dot${syncState === 'checking' ? ' spinning' : syncState === 'error' ? ' error' : ''}`} />
+      {getSyncLabel(syncState, lastSyncedAt, nowMs)}
     </div>
   );
 }
