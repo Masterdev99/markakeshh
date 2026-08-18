@@ -112,6 +112,22 @@ export function MailView({ isActive }: MailViewProps) {
   const [showRulesManager, setShowRulesManager] = useState(false);
   const [moveModalIds, setMoveModalIds] = useState<string[] | null>(null);
 
+  // Reset per-mailbox UI state whenever the selected account changes.
+  // Folder IDs, message IDs, and search results are all scoped to one
+  // mailbox — without this, switching accounts kept querying the *new*
+  // account with the *previous* account's folder/message IDs (which don't
+  // exist there), so the message list, reading pane, and search all 404'd
+  // until the user manually clicked back to Inbox.
+  useEffect(() => {
+    setCurrentFolder('inbox');
+    setFolderName('Inbox');
+    setSelectedMessageId(null);
+    setReplyMode(null);
+    clearSelection();
+    useSearchStore.getState().exitSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.id]);
+
   // Infinite messages query
   const {
     data,
@@ -654,7 +670,7 @@ export function MailView({ isActive }: MailViewProps) {
               nextLink={nextLink}
               isLoading={isLoading || isFetchingNextPage || isSearchLoading}
               error={(error as Error | null) ?? searchError}
-              onLoadMore={() => { if (hasNextPage) fetchNextPage(); }}
+              onLoadMore={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
             />
           </div>
 

@@ -11,9 +11,9 @@ import { useQuery } from '@tanstack/react-query';
 import { useAccountsStore } from '../../../store/accounts';
 import { fetchMessage, fetchAttachments } from '../../../services/graph/messages';
 import { sanitizeHtml } from '../../../utils/sanitize';
-import { formatFullDate, formatFileSize, base64ToBlob, getFileExtension, getFileIconClass } from '../../../utils/format';
+import { formatFullDate, formatFileSize, formatRecipientList, base64ToBlob, getFileExtension, getFileIconClass } from '../../../utils/format';
 import { getInitials, getAvatarColor } from '../../../utils/avatar';
-import { useCidImagePatch, applyCidPatch } from '../hooks/useCidImagePatch';
+import { useCidImagePatch, applyCidPatch, blankCidRefs } from '../hooks/useCidImagePatch';
 import {
   DismissIcon, ArrowLeftIcon, ArrowRightIcon, SearchIcon, ReplyIcon, ReplyAllIcon,
   ForwardIcon, DeleteIcon, CheckmarkCircleIcon, FlagIcon, FolderIcon, AttachIcon, DocumentIcon,
@@ -92,7 +92,10 @@ export function ReadingPane({
     if (!message || !messageId || !bodyHtml.includes('cid:')) return;
     let cancelled = false;
     getCidMap(messageId, currentAccountIdx, bodyHtml).then((map) => {
-      if (cancelled || Object.keys(map).length === 0) return;
+      if (cancelled) return;
+      // Always apply — even an empty map still needs to run so any cid: refs
+      // that couldn't be resolved get blanked instead of left as a literal
+      // cid: URL (which the browser can't fetch and shows as a broken image).
       setCidPatchedHtml(applyCidPatch(bodyHtml, map));
     });
     return () => { cancelled = true; };
@@ -114,11 +117,16 @@ export function ReadingPane({
   const from = message?.from?.emailAddress;
   const initials = getInitials(from?.name || from?.address || '?');
   const avatarColor = getAvatarColor(from?.address || '');
-  const renderedBodyHtml = cidPatchedHtml ?? bodyHtml;
+  // Before the cid map resolves, blank any cid: refs rather than render them
+  // raw — otherwise the browser attempts to fetch the literal `cid:` URL
+  // (unsupported scheme) and shows a broken-image icon that then pops to a
+  // real image once resolved, a visible double layout shift.
+  const renderedBodyHtml = cidPatchedHtml ?? blankCidRefs(bodyHtml);
 
   const recipients = [
-    message?.toRecipients?.length ? 'To: ' + message.toRecipients.map((r) => r.emailAddress.name || r.emailAddress.address).join(', ') : null,
-    message?.ccRecipients?.length ? 'Cc: ' + message.ccRecipients.map((r) => r.emailAddress.name || r.emailAddress.address).join(', ') : null,
+    message?.toRecipients?.length ? 'To: ' + formatRecipientList(message.toRecipients) : null,
+    message?.ccRecipients?.length ? 'Cc: ' + formatRecipientList(message.ccRecipients) : null,
+    message?.bccRecipients?.length ? 'Bcc: ' + formatRecipientList(message.bccRecipients) : null,
   ].filter(Boolean);
 
   const canNavigateUp = selectedIdx > 0;

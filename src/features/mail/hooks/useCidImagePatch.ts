@@ -36,8 +36,31 @@ interface Attachment {
 
 type CidMap = Record<string, string>;
 
+// A 1x1 transparent GIF used in place of any cid: reference that couldn't be
+// resolved to an attachment. Left unpatched, a literal `cid:...` src causes
+// the browser to attempt a fetch with an unsupported URL scheme (a harmless
+// but noisy net::ERR_UNKNOWN_URL_SCHEME on every load) and shows a broken-image
+// icon; blanking it up front also avoids a second visible layout shift when
+// the "broken" icon would otherwise later flip to a real image.
+const BLANK_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+
+// Capped so a long mail session doesn't hold every inline image (as base64
+// data URLs) for every message ever opened in memory for the life of the tab.
+// Insertion order doubles as recency order — re-inserting a key on access
+// keeps it at the "most recent" end, so eviction (shift the oldest key) is a
+// simple LRU.
+const CID_CACHE_MAX_MESSAGES = 30;
 const cidMapCache = new Map<string, CidMap>();
 const cidMapPending = new Map<string, Promise<CidMap>>();
+
+function cacheCidMap(messageId: string, map: CidMap): void {
+  cidMapCache.delete(messageId);
+  cidMapCache.set(messageId, map);
+  if (cidMapCache.size > CID_CACHE_MAX_MESSAGES) {
+    const oldestKey = cidMapCache.keys().next().value;
+    if (oldestKey !== undefined) cidMapCache.delete(oldestKey);
+  }
+}
 
 function normalizeContentId(cid: string): string {
   // Strip angle brackets:  <foo@bar> → foo@bar
@@ -53,25 +76,41 @@ function extractCidRefs(html: string): Set<string> {
   return refs;
 }
 
-/** Pure string transform — replaces every cid: reference in `html` with its resolved data: URL. Safe to call repeatedly / on every render. */
+/**
+ * Pure string transform — replaces every cid: reference in `html` with its
+ * resolved data: URL. Any ref left unresolved (not in `map`) is blanked
+ * rather than left as a literal cid: URL. Safe to call repeatedly / on every
+ * render.
+ */
 export function applyCidPatch(html: string, map: CidMap): string {
-  if (!html || Object.keys(map).length === 0) return html;
+  if (!html || !html.includes('cid:')) return html;
   let patched = html;
   for (const [cidRef, dataUrl] of Object.entries(map)) {
     const escaped = cidRef.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     patched = patched.replace(new RegExp('cid:' + escaped, 'gi'), dataUrl);
   }
+  patched = patched.replace(/\bcid:[^\s"'<>)\]]+/gi, BLANK_PIXEL);
   return patched;
+}
+
+/** Blanks every cid: reference without waiting on attachment resolution — used for the first paint so unresolved refs never hit the browser as a live cid: URL. */
+export function blankCidRefs(html: string): string {
+  if (!html || !html.includes('cid:')) return html;
+  return html.replace(/\bcid:[^\s"'<>)\]]+/gi, BLANK_PIXEL);
 }
 
 export function useCidImagePatch() {
   const getCidMap = useCallback(async (messageId: string, accountIdx: number, html: string): Promise<CidMap> => {
-    if (cidMapCache.has(messageId)) return cidMapCache.get(messageId)!;
+    if (cidMapCache.has(messageId)) {
+      const cached = cidMapCache.get(messageId)!;
+      cacheCidMap(messageId, cached); // bump recency
+      return cached;
+    }
     if (cidMapPending.has(messageId)) return cidMapPending.get(messageId)!;
 
     const cidRefs = extractCidRefs(html);
     if (cidRefs.size === 0) {
-      cidMapCache.set(messageId, {});
+      cacheCidMap(messageId, {});
       return {};
     }
 
@@ -108,7 +147,7 @@ export function useCidImagePatch() {
         }
 
         if (Object.keys(attById).length === 0) {
-          cidMapCache.set(messageId, {});
+          cacheCidMap(messageId, {});
           return {};
         }
 
@@ -132,7 +171,7 @@ export function useCidImagePatch() {
           }
         });
 
-        cidMapCache.set(messageId, patchMap);
+        cacheCidMap(messageId, patchMap);
         return patchMap;
       } catch (e) {
         console.warn('[cid-patch] Failed:', (e as Error).message);

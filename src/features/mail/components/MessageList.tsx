@@ -3,7 +3,7 @@
  * Mirrors renderMessages() at lines 9277–9394.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useSelectionStore } from '../../../store/selection';
 import { useSearchStore } from '../../../store/search';
 import { useAccountsStore } from '../../../store/accounts';
@@ -41,19 +41,32 @@ export function MessageList({
   const { selectedIds, toggleSelection, selectAll, clearSelection } = useSelectionStore();
   const { isSearchActive, activeFilters } = useSearchStore();
   const { accounts, currentAccountIdx } = useAccountsStore();
-  const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Infinite scroll via IntersectionObserver
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel || !nextLink) return;
+  // Infinite scroll via IntersectionObserver. `onLoadMore` is a fresh inline
+  // function on every MailView render, so it's read through a ref rather
+  // than being an effect dependency — otherwise the observer would be torn
+  // down and recreated on every render, and since IntersectionObserver
+  // delivers the *current* intersection state as soon as `observe()` is
+  // called, a sentinel that's still on-screen (common in a short list) would
+  // re-fire onLoadMore() immediately on every recreation, cascading into a
+  // burst of duplicate fetches for the same page (net::ERR_INSUFFICIENT_RESOURCES).
+  // A callback ref (rather than a plain ref + effect keyed on `nextLink`)
+  // ensures the observer attaches exactly once per sentinel mount, including
+  // when the sentinel first appears after `nextLink` goes from null to set.
+  const onLoadMoreRef = useRef(onLoadMore);
+  onLoadMoreRef.current = onLoadMore;
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const sentinelRef = useCallback((node: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (!node) return;
     const obs = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) onLoadMore(); },
+      (entries) => { if (entries[0].isIntersecting) onLoadMoreRef.current(); },
       { rootMargin: '100px' }
     );
-    obs.observe(sentinel);
-    return () => obs.disconnect();
-  }, [nextLink, onLoadMore]);
+    obs.observe(node);
+    observerRef.current = obs;
+  }, []);
 
   // Filter messages — Focused/Other tab and the folder-view sort chips only
   // apply while browsing a folder; search has its own refinement chips below.

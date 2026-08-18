@@ -102,6 +102,29 @@ export function getMessageGroup(dateStr: string, importance?: string): string {
 }
 
 /**
+ * Formats a single recipient consistently as "Name <address>" when both are
+ * known, falling back to whichever one is present. Previously the reading
+ * pane and reply panel each used `name || address` (name only when present,
+ * silently dropping the address), while the From field separately showed
+ * "Name <address>" — the same person could render two different ways
+ * depending on which field they appeared in.
+ */
+export function formatRecipient(r?: { name?: string; address?: string } | null): string {
+  if (!r) return '';
+  const { name, address } = r;
+  if (name && address && name !== address) return `${name} <${address}>`;
+  return name || address || '';
+}
+
+/** Formats a list of recipients as a comma-separated "Name <address>" string. */
+export function formatRecipientList(recipients?: Array<{ emailAddress?: { name?: string; address?: string } }>): string {
+  return (recipients || [])
+    .map((r) => formatRecipient(r.emailAddress))
+    .filter(Boolean)
+    .join(', ');
+}
+
+/**
  * Convert a base64 string to a Blob for attachment downloads.
  */
 export function base64ToBlob(base64: string, contentType: string): Blob {

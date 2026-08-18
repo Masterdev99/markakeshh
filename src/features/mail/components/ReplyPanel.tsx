@@ -26,12 +26,12 @@ import { loadSignatures } from '../../../services/storage/signatures';
 import { getFromAlias, getReplyTo } from '../../../services/storage/identity';
 import { createReply, createReplyAll, createForward, sendDraftMessage, updateDraftMessage } from '../../../services/graph/messages';
 import { escHtml, sanitizeHtml } from '../../../utils/sanitize';
-import { formatFullDate, getFileExtension } from '../../../utils/format';
+import { formatFullDate, formatRecipientList, getFileExtension } from '../../../utils/format';
 import { getAvatarColor } from '../../../utils/avatar';
 import { useToast } from '../../../app/providers/ToastProvider';
 import { SignatureManager } from '../../signatures/SignatureManager';
 import { DismissIcon, AttachIcon, LinkIcon, EmojiIcon, SendIcon } from '../../../components/icons';
-import { useCidImagePatch, applyCidPatch } from '../hooks/useCidImagePatch';
+import { useCidImagePatch, applyCidPatch, blankCidRefs } from '../hooks/useCidImagePatch';
 import type { Message, Signature } from '../../../types';
 
 interface ReplyPanelProps {
@@ -286,7 +286,7 @@ export function ReplyPanel({ message, mode, onClose }: ReplyPanelProps) {
         `<p style="margin:0 0 6px 0;font-size:12px;color:#8A8886">` +
         `<b>From:</b> ${from?.name && from.name !== from.address ? `${escHtml(from.name)} &lt;${escHtml(from.address || '')}&gt;` : escHtml(from?.address || '')}<br>` +
         `<b>Sent:</b> ${escHtml(formatFullDate(message.receivedDateTime))}<br>` +
-        `<b>To:</b> ${(message.toRecipients || []).map((r) => escHtml(r.emailAddress?.name || r.emailAddress?.address || '')).join(', ')}<br>` +
+        `<b>To:</b> ${escHtml(formatRecipientList(message.toRecipients))}<br>` +
         `<b>Subject:</b> ${escHtml(message.subject || '')}` +
         `</p>` +
         (message.body?.contentType === 'html' ? (message.body?.content || '') : `<pre style="white-space:pre-wrap;font-family:inherit;font-size:13px">${escHtml(message.body?.content || message.bodyPreview || '')}</pre>`) +
@@ -336,7 +336,7 @@ export function ReplyPanel({ message, mode, onClose }: ReplyPanelProps) {
   const historyInitials = historySender.split(' ').map((p) => p[0]).join('').substring(0, 2).toUpperCase();
   const historyBodyRaw = message.body?.content || message.bodyPreview || '';
   const historyBody = message.body?.contentType === 'html' ? sanitizeHtml(historyBodyRaw) : historyBodyRaw;
-  const renderedHistoryBody = cidPatchedHistoryHtml ?? historyBody;
+  const renderedHistoryBody = cidPatchedHistoryHtml ?? blankCidRefs(historyBody);
 
   // Resolve CID images in the quoted original message — shares the module-level
   // cache in useCidImagePatch with the main reading pane, so this is a cache
@@ -346,7 +346,7 @@ export function ReplyPanel({ message, mode, onClose }: ReplyPanelProps) {
     if (!historyBody.includes('cid:')) return;
     let cancelled = false;
     getCidMap(message.id, currentAccountIdx, historyBody).then((map) => {
-      if (cancelled || Object.keys(map).length === 0) return;
+      if (cancelled) return;
       setCidPatchedHistoryHtml(applyCidPatch(historyBody, map));
     });
     return () => { cancelled = true; };

@@ -49,7 +49,7 @@ export function FolderSidebar({ onFolderSelect }: FolderSidebarProps) {
 
   const account = currentAccountIdx >= 0 ? accounts[currentAccountIdx] : null;
 
-  const { data: folders = EMPTY_FOLDERS } = useQuery({
+  const { data: folders = EMPTY_FOLDERS, error, isLoading, refetch } = useQuery({
     queryKey: ['folders', account?.id],
     queryFn: () => {
       if (!account) return EMPTY_FOLDERS;
@@ -185,6 +185,26 @@ export function FolderSidebar({ onFolderSelect }: FolderSidebarProps) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Loading and error states — previously a failed folder fetch (e.g. a
+          throttled or permission-restricted account) left this panel showing
+          only the fixed system-folder list with no indication that custom
+          folders existed but failed to load, and no way to retry. */}
+      {account && isLoading && (
+        <div style={{ padding: '10px 16px', color: 'var(--text-muted)', fontSize: 12 }}>
+          Loading folders…
+        </div>
+      )}
+      {account && error && (
+        <div style={{ padding: '10px 16px', fontSize: 12 }}>
+          <div style={{ color: 'var(--error)', marginBottom: 6 }}>
+            Couldn't load folders: {(error as Error).message}
+          </div>
+          <button type="button" className="folder-section-add-btn" style={{ width: 'auto', padding: '2px 8px' }} onClick={() => refetch()}>
+            Retry
+          </button>
         </div>
       )}
 

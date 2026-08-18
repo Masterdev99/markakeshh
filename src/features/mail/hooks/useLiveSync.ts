@@ -28,12 +28,29 @@ export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, 
   const seenIdsRef = useRef<Set<string>>(new Set());
   const keywordLoggedRef = useRef<Set<string>>(new Set());
 
+  // Latest callback/derived-data refs, read inside the polling logic without
+  // being callback/effect dependencies. MailView passes onNewMessages/
+  // onSyncTick as new inline functions and allFolders as a freshly-flattened
+  // array on every render — if those flowed into checkNewMessages/seedSeenIds'
+  // dependency arrays (as they used to), each parent re-render would rebuild
+  // the polling effects and re-run seedSeenIds. Since onSyncTick itself calls
+  // setSyncState (a re-render-causing state update), that closed a feedback
+  // loop: tick → re-render → rebuild → seed fetch → tick → re-render → ...,
+  // firing requests as fast as the network would allow and tripping
+  // net::ERR_INSUFFICIENT_RESOURCES.
+  const onNewMessagesRef = useRef(onNewMessages);
+  onNewMessagesRef.current = onNewMessages;
+  const onSyncTickRef = useRef(onSyncTick);
+  onSyncTickRef.current = onSyncTick;
+  const allFoldersRef = useRef(allFolders);
+  allFoldersRef.current = allFolders;
+
   const isInbox = useCallback(() => {
     const normalized = (currentFolderId || '').toLowerCase().replace(/\s+/g, '');
     if (normalized === 'inbox') return true;
-    const f = allFolders.find((x) => x.id === currentFolderId);
+    const f = allFoldersRef.current.find((x) => x.id === currentFolderId);
     return (f?.displayName || '').toLowerCase().replace(/\s+/g, '') === 'inbox';
-  }, [currentFolderId, allFolders]);
+  }, [currentFolderId]);
 
   const applyLocalRuleActions = useCallback(async (newMsgs: Message[]) => {
     if (!account || newMsgs.length === 0 || !isInbox()) return;
@@ -144,34 +161,34 @@ export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, 
 
   const checkNewMessages = useCallback(async () => {
     if (!account) return;
-    onSyncTick?.('checking');
+    onSyncTickRef.current?.('checking');
     try {
       const latest = await fetchLatestMessages(currentFolderId, account.accessToken, accountIdx, 10);
       const newMsgs = latest.filter((m) => !seenIdsRef.current.has(m.id));
       newMsgs.forEach((m) => seenIdsRef.current.add(m.id));
       if (newMsgs.length > 0) {
-        onNewMessages(newMsgs);
+        onNewMessagesRef.current(newMsgs);
         applyLocalRuleActions(newMsgs).catch(() => {});
       }
-      onSyncTick?.('synced');
+      onSyncTickRef.current?.('synced');
     } catch (_e) {
       // Silently ignore sync errors — they'll be visible via error toasts if severe
-      onSyncTick?.('error');
+      onSyncTickRef.current?.('error');
     }
-  }, [account, accountIdx, currentFolderId, onNewMessages, applyLocalRuleActions, onSyncTick]);
+  }, [account, accountIdx, currentFolderId, applyLocalRuleActions]);
 
   // Seed initial seen IDs on mount / account change
   const seedSeenIds = useCallback(async () => {
     if (!account) return;
-    onSyncTick?.('checking');
+    onSyncTickRef.current?.('checking');
     try {
       const msgs = await fetchLatestMessages(currentFolderId, account.accessToken, accountIdx, 10);
       msgs.forEach((m) => seenIdsRef.current.add(m.id));
-      onSyncTick?.('synced');
+      onSyncTickRef.current?.('synced');
     } catch (_e) {
-      onSyncTick?.('error');
+      onSyncTickRef.current?.('error');
     }
-  }, [account, accountIdx, currentFolderId, onSyncTick]);
+  }, [account, accountIdx, currentFolderId]);
 
   useEffect(() => {
     if (!enabled) return;
