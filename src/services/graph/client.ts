@@ -2,14 +2,14 @@
  * Microsoft Graph API client.
  *
  * THE ONLY PLACE raw fetch() to Graph is allowed to appear.
- * All other code must call graphApi() or cachedGraphApi().
+ * All other code must call graphApi().
  *
- * Ported faithfully from lines 7624–7666 (cachedGraphApi, clearApiCache)
- * and lines 13013–13133 (graphApi).
+ * Ported faithfully from lines 13013–13133.
  *
  * Supports:
  *  - Shorthand call: graphApi(endpoint, accountIdx) where accountIdx is a number
- *  - Token refresh retry on 401 (requires account index to know which token to refresh)
+ *  - Token refresh retry on 401, shared across concurrent 401s for the same
+ *    account so a burst of requests doesn't each kick off its own refresh call
  *  - Rate-limit (429) exponential back-off
  *  - Generic retry on transient errors
  *  - /beta/ prefix (maps to beta endpoint instead of v1.0)
@@ -23,6 +23,25 @@ let _accounts: Array<{ accessToken: string; refreshToken?: string | null }> = []
 
 export function setGraphAccounts(accounts: typeof _accounts): void {
   _accounts = accounts;
+}
+
+/**
+ * In-flight refresh promises, keyed by account index. Several requests can
+ * hit a 401 for the same account within milliseconds of each other (e.g. the
+ * folder tree, message list, and admin-role check all firing on startup) —
+ * without this, each would independently call the token endpoint at once.
+ */
+const refreshInFlight = new Map<number, Promise<void>>();
+
+function refreshTokenOnce(accountIdx: number, accounts: typeof _accounts): Promise<void> {
+  let promise = refreshInFlight.get(accountIdx);
+  if (!promise) {
+    promise = refreshToken(accountIdx, accounts).finally(() => {
+      refreshInFlight.delete(accountIdx);
+    });
+    refreshInFlight.set(accountIdx, promise);
+  }
+  return promise;
 }
 
 const GRAPH_V1 = 'https://graph.microsoft.com/v1.0';
@@ -140,7 +159,7 @@ export async function graphApi(
         if (_accountIdx !== null && _accounts[_accountIdx]?.refreshToken) {
           console.log('[graph] Token expired, attempting refresh...');
           try {
-            await refreshToken(_accountIdx, _accounts);
+            await refreshTokenOnce(_accountIdx, _accounts);
             const newToken = _accounts[_accountIdx].accessToken;
             const retryResp = await makeRequest(endpoint, newToken, method, _body, _extraHeaders);
             if (retryResp.status === 204) return null;
@@ -181,50 +200,4 @@ export async function graphApi(
     }
   }
   throw new Error('Max retries exceeded');
-}
-
-// ==================== CACHE LAYER ====================
-
-const apiCache = new Map<string, { data: unknown; timestamp: number }>();
-const pendingRequests = new Map<string, Promise<unknown>>();
-const API_CACHE_TTL = 5 * 60 * 1_000; // 5 minutes
-
-export async function cachedGraphApi(
-  endpoint: string,
-  tokenOrIdx: string | number,
-  method: HttpMethod = 'GET',
-  body: unknown = null,
-  retries = 3,
-  accountIdx: number = -1
-): Promise<unknown> {
-  const cacheKey = `${method}:${endpoint}`;
-  const now = Date.now();
-
-  if (method === 'GET') {
-    const cached = apiCache.get(cacheKey);
-    if (cached && now - cached.timestamp < API_CACHE_TTL) return cached.data;
-
-    if (pendingRequests.has(cacheKey)) return pendingRequests.get(cacheKey);
-  }
-
-  const promise = graphApi(endpoint, tokenOrIdx, method, body, retries, accountIdx)
-    .then((data) => {
-      if (method === 'GET') {
-        apiCache.set(cacheKey, { data, timestamp: Date.now() });
-      }
-      pendingRequests.delete(cacheKey);
-      return data;
-    })
-    .catch((err: Error) => {
-      pendingRequests.delete(cacheKey);
-      throw err;
-    });
-
-  if (method === 'GET') pendingRequests.set(cacheKey, promise);
-  return promise;
-}
-
-export function clearApiCache(): void {
-  apiCache.clear();
-  pendingRequests.clear();
 }

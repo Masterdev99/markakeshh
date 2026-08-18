@@ -15,6 +15,10 @@ import { MessageList } from './components/MessageList';
 import { ReadingPane } from './components/ReadingPane';
 import { useLiveSync } from './hooks/useLiveSync';
 import { fetchMessages, markMessageRead, deleteMessage, permanentDeleteMessage, moveMessage, flagMessage, searchMessages, searchMessagesInFolder, sweepSenderMessages } from '../../services/graph/messages';
+import { mapWithConcurrency } from '../../utils/concurrency';
+
+/** Caps simultaneous requests for multi-message toolbar actions (mark read/delete/move) so selecting hundreds of messages can't fire them all at once. */
+const MAX_CONCURRENT_BULK_REQUESTS = 6;
 import { useToast } from '../../app/providers/ToastProvider';
 import { ComposeWindow } from '../compose/ComposeWindow';
 import { SignatureManager } from '../signatures/SignatureManager';
@@ -206,7 +210,7 @@ export function MailView({ isActive }: MailViewProps) {
       const ids = (e as CustomEvent).detail as string[];
       if (!account || ids.length === 0) return;
       toast(`Marking ${ids.length} messages as read...`);
-      await Promise.allSettled(ids.map((id) => markMessageRead(id, true, account.accessToken, currentAccountIdx)));
+      await mapWithConcurrency(ids, MAX_CONCURRENT_BULK_REQUESTS, (id) => markMessageRead(id, true, account.accessToken, currentAccountIdx));
       clearSelection();
       queryClient.invalidateQueries({ queryKey: ['messages', account.id, currentFolderId] });
       toast('Messages marked as read', 'success');
@@ -218,11 +222,11 @@ export function MailView({ isActive }: MailViewProps) {
       if (isTrash) {
         if (!confirm(`Permanently delete ${ids.length} messages?`)) return;
         toast(`Permanently deleting ${ids.length} messages...`);
-        await Promise.allSettled(ids.map((id) => permanentDeleteMessage(id, account.accessToken, currentAccountIdx)));
+        await mapWithConcurrency(ids, MAX_CONCURRENT_BULK_REQUESTS, (id) => permanentDeleteMessage(id, account.accessToken, currentAccountIdx));
       } else {
         if (!confirm(`Move ${ids.length} messages to Deleted Items?`)) return;
         toast(`Moving ${ids.length} messages to trash...`);
-        await Promise.allSettled(ids.map((id) => moveMessage(id, 'deleteditems', account.accessToken, currentAccountIdx)));
+        await mapWithConcurrency(ids, MAX_CONCURRENT_BULK_REQUESTS, (id) => moveMessage(id, 'deleteditems', account.accessToken, currentAccountIdx));
       }
       clearSelection();
       queryClient.invalidateQueries({ queryKey: ['messages', account.id, currentFolderId] });
@@ -371,7 +375,7 @@ export function MailView({ isActive }: MailViewProps) {
     const ids = moveModalIds;
     setMoveModalIds(null);
     try {
-      await Promise.allSettled(ids.map((id) => moveMessage(id, destFolderId, account.accessToken, currentAccountIdx)));
+      await mapWithConcurrency(ids, MAX_CONCURRENT_BULK_REQUESTS, (id) => moveMessage(id, destFolderId, account.accessToken, currentAccountIdx));
       if (ids.includes(selectedMessageId || '')) setSelectedMessageId(null);
       clearSelection();
       queryClient.invalidateQueries({ queryKey: ['messages', account.id, currentFolderId] });
@@ -606,12 +610,14 @@ export function MailView({ isActive }: MailViewProps) {
                 </span>
               </div>
               <div className="sync-indicator" id="syncStatus" style={{ paddingRight: 0 }} title={lastSyncedAt ? `Last synced ${lastSyncedAt.toLocaleTimeString()}` : undefined}>
+                {/* The dot spins during a "checking" tick, but the label always
+                    shows the last refreshed state rather than flashing to a
+                    "Syncing…" processing state on every 30s poll. */}
                 <div className={`dot${statusOverride || syncState === 'checking' ? ' spinning' : syncState === 'error' ? ' error' : ''}`} />
                 {statusOverride
                   ? statusOverride
-                  : syncState === 'checking' ? 'Syncing…'
-                    : syncState === 'error' ? 'Sync error — retrying'
-                      : lastSyncedAt ? `Synced ${timeAgoLabel(lastSyncedAt)}` : 'Live sync active'}
+                  : syncState === 'error' ? 'Sync error — retrying'
+                    : lastSyncedAt ? `Synced ${timeAgoLabel(lastSyncedAt)}` : 'Live sync active'}
               </div>
             </div>
 

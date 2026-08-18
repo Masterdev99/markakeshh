@@ -7,7 +7,11 @@
  */
 
 import { graphApi } from './client';
+import { mapWithConcurrency } from '../../utils/concurrency';
 import type { Message, MessageListResponse, Attachment } from '../../types';
+
+/** Max simultaneous in-flight requests for a single bulk operation — keeps large batches (e.g. sweeping hundreds of messages) from firing every request at once and tripping the browser's own connection limits (net::ERR_INSUFFICIENT_RESOURCES). */
+const MAX_CONCURRENT_BULK_REQUESTS = 6;
 
 const WELL_KNOWN_FOLDERS: Record<string, string> = {
   inbox: 'Inbox',
@@ -208,7 +212,7 @@ export async function sweepSenderMessages(
     const nextLink = data['@odata.nextLink'] || null;
     path = nextLink ? nextLink.replace('https://graph.microsoft.com/v1.0', '') : null;
   }
-  await Promise.allSettled(ids.map((id) => moveMessage(id, destinationId, token, accountIdx)));
+  await mapWithConcurrency(ids, MAX_CONCURRENT_BULK_REQUESTS, (id) => moveMessage(id, destinationId, token, accountIdx));
   return ids.length;
 }
 
