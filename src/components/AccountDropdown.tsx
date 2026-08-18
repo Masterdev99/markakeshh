@@ -48,6 +48,7 @@ export function AccountDropdown({ onClose, anchorStyle }: AccountDropdownProps) 
   return (
     <>
       <div className="account-dropdown" id="accountDropdown" ref={ref} style={anchorStyle}>
+        <div className="account-dropdown-list">
         {accounts.length === 0 ? (
           <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>
             No accounts added
@@ -101,6 +102,7 @@ export function AccountDropdown({ onClose, anchorStyle }: AccountDropdownProps) 
             );
           })
         )}
+        </div>
 
         <div className="account-dropdown-footer">
           <button onClick={() => { onClose(); /* TODO: switchApp('account') */ }}>My Account</button>

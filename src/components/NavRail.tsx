@@ -3,10 +3,8 @@
  * Mirrors .nav-rail markup and nav-rail-btn active state logic from switchApp().
  */
 
-import { useState } from 'react';
 import type { AppId } from './AppLauncher';
 import { MailIcon, CalendarIcon, PeopleIcon, CheckmarkCircleIcon, CloudIcon, PlugConnectedIcon } from './icons';
-import { AccountDropdown } from './AccountDropdown';
 import { useAccountsStore } from '../store/accounts';
 import { isTokenExpired } from '../services/graph/auth';
 
@@ -25,7 +23,6 @@ const NAV_ITEMS: Array<{ id: AppId; title: string; Icon: typeof MailIcon }> = [
 
 export function NavRail({ currentApp, onSwitch }: NavRailProps) {
   const { accounts } = useAccountsStore();
-  const [connectionsOpen, setConnectionsOpen] = useState(false);
   const validCount = accounts.filter((a) => !isTokenExpired(a.accessToken)).length;
 
   return (
@@ -43,21 +40,15 @@ export function NavRail({ currentApp, onSwitch }: NavRailProps) {
 
       <div className="nav-rail-divider" />
 
-      <div style={{ position: 'relative' }}>
-        <button
-          className={`nav-rail-btn${connectionsOpen ? ' active' : ''}`}
-          title={`Connections (${validCount} active account${validCount !== 1 ? 's' : ''})`}
-          onClick={() => setConnectionsOpen((o) => !o)}
-        >
-          <PlugConnectedIcon size={20} />
-          {accounts.length > 0 && <span className="nav-rail-badge">{validCount}</span>}
-        </button>
-        {connectionsOpen && (
-          <AccountDropdown
-            onClose={() => setConnectionsOpen(false)}
-            anchorStyle={{ top: 0, left: 48, right: 'auto' }}
-          />
-        )}
+      {/* Connections indicator — count only. The full account list (switch,
+          add, remove) lives in the header avatar's dropdown; this used to
+          open a second copy of it here, which duplicated that UI. */}
+      <div
+        className="nav-rail-btn nav-rail-btn-static"
+        title={`${validCount} active account${validCount !== 1 ? 's' : ''}`}
+      >
+        <PlugConnectedIcon size={20} />
+        {accounts.length > 0 && <span className="nav-rail-badge">{validCount}</span>}
       </div>
     </nav>
   );

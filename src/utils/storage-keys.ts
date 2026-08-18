@@ -25,6 +25,7 @@ export const STORAGE_KEYS = {
   EMAIL_SIGNATURES: 'email_signatures',
   FEED_URL: 'feed_url',
   FEED_INTERVAL: 'feed_interval',
+  MAIL_SYNC_INTERVAL: 'mail_sync_interval_seconds',
   REFRESH_PROXY_URL: 'refresh_proxy_url',
   SMTP_SETTINGS: 'smtp_settings',
   LOCAL_CONSOLE_RULES: 'local_console_rules', // default/no-account fallback

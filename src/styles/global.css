@@ -9,6 +9,10 @@
   box-sizing: border-box;
 }
 
+/* Branded file-type icons (fileTypeIcons.tsx) — sized by their wrapper span; the SVG itself just fills it. */
+.file-type-icon { display: inline-block; }
+.file-type-icon svg { width: 100%; height: 100%; display: block; }
+
 html,
 body,
 #root {
@@ -451,6 +455,9 @@ body {
   background: var(--primary-lighter);
 }
 
+.nav-rail-btn-static { cursor: default; }
+.nav-rail-btn-static:hover { background: transparent; color: var(--text-secondary); }
+
 .nav-rail-btn.active::before {
   content: '';
   position: absolute;
@@ -641,6 +648,16 @@ body {
   box-shadow: var(--shadow-lg);
   z-index: 500;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Fixed width (matches .account-dropdown) and capped height so a long
+   account list scrolls internally instead of growing the dropdown past the
+   viewport — the footer (Add Account / My Account) stays pinned below it. */
+.account-dropdown-list {
+  max-height: 340px;
+  overflow-y: auto;
 }
 
 .account-dropdown-item {
@@ -782,6 +799,21 @@ body {
 }
 
 .settings-menu-switch.on .settings-menu-switch-dot { left: 16px; }
+
+.settings-menu-item-static { cursor: default; }
+.settings-menu-item-static:hover { background: transparent; }
+
+.settings-menu-item-select {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 4px 6px;
+  cursor: pointer;
+}
 
 /* ==================== TOAST ==================== */
 .toast-container {
@@ -1031,16 +1063,15 @@ body {
 }
 
 .sig-manager-header {
-  padding: 16px 20px;
-  background: #1b3a6b;
-  color: #fff;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
 }
 
-.sig-manager-header h3 { flex: 1; font-size: 16px; font-weight: 600; }
+.sig-manager-header h3 { flex: 1; font-size: 16px; font-weight: 600; color: var(--text); }
 
 .sig-manager-body {
   padding: 20px;
@@ -1077,6 +1108,20 @@ body {
   border-color: var(--primary);
   background: var(--primary-lighter);
   box-shadow: 0 0 0 3px rgba(15, 108, 189, 0.1);
+}
+
+/* Drag handle for free-form image resize in the signature editor — sits
+   alongside the S/M/L/Full quick-size presets, not instead of them. */
+.sig-img-resize-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid var(--surface);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  cursor: nwse-resize;
+  z-index: 5;
 }
 
 /* ==================== ADMIN TABS ==================== */

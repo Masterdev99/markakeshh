@@ -27,9 +27,8 @@ import { Modal } from '../../components/Modal';
 import { exportFolderAddresses, exportFullMailboxAddresses, exportAccountsDatabase, importAccountsDatabase } from '../../services/export';
 import {
   MailAddIcon, SignatureIcon, FilterIcon, ArrowDownloadIcon, CloudIcon,
-  DatabaseIcon, ArrowUploadIcon, DismissIcon, DeleteIcon, ArchiveIcon, ShieldErrorIcon,
-  CheckmarkCircleIcon, BroomIcon, FolderIcon, ReplyIcon, ReplyAllIcon, ForwardIcon,
-  FlashIcon, MailReadIcon, MailUnreadIcon,
+  DatabaseIcon, ArrowUploadIcon, DismissIcon, ShieldErrorIcon,
+  CheckmarkCircleIcon, BroomIcon, FolderIcon, FlashIcon,
 } from '../../components/icons';
 import { MailboxSwitcher } from './components/MailboxSwitcher';
 import { usePanelResize } from '../../hooks/usePanelResize';
@@ -199,9 +198,6 @@ export function MailView({ isActive }: MailViewProps) {
   const isSearchLoading = search.isSearchActive && searchQuery.isLoading;
   const searchError = search.isSearchActive ? (searchQuery.error as Error | null) : null;
 
-  // Selected message index (for navigation)
-  const selectedIdx = messages.findIndex((m) => m.id === selectedMessageId);
-
   // Live sync (paused while another app tab is active)
   useLiveSync({
     account,
@@ -278,13 +274,6 @@ export function MailView({ isActive }: MailViewProps) {
     // "Mark as read" action (handleMarkRead) may do that.
     setSelectedMessageId(msg.id);
     setReplyMode(null);
-  }
-
-  function handleNavigate(dir: -1 | 1) {
-    const newIdx = selectedIdx + dir;
-    if (newIdx >= 0 && newIdx < messages.length) {
-      setSelectedMessageId(messages[newIdx].id);
-    }
   }
 
   async function handleDelete(id: string) {
@@ -537,12 +526,6 @@ export function MailView({ isActive }: MailViewProps) {
             to the message-preview side per explicit request (not above the folder sidebar). */}
         <div className="toolbar" id="mailActionToolbar">
           <div className="toolbar-group">
-            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleDelete(selectedMessageId)} title="Delete">
-              <DeleteIcon size={15} />Delete
-            </button>
-            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleArchive(selectedMessageId)} title="Archive">
-              <ArchiveIcon size={15} />Archive
-            </button>
             {isJunkFolder ? (
               <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleNotSpam(selectedMessageId)} title="Not junk">
                 <CheckmarkCircleIcon size={15} />Not spam
@@ -563,28 +546,8 @@ export function MailView({ isActive }: MailViewProps) {
           <div className="toolbar-sep" />
 
           <div className="toolbar-group">
-            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => hasSelectedMessage && setReplyMode('reply')} title="Reply">
-              <ReplyIcon size={15} />Reply
-            </button>
-            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => hasSelectedMessage && setReplyMode('replyAll')} title="Reply all">
-              <ReplyAllIcon size={15} />Reply all
-            </button>
-            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => hasSelectedMessage && setReplyMode('forward')} title="Forward">
-              <ForwardIcon size={15} />Forward
-            </button>
             <button className="toolbar-btn" onClick={() => setShowRulesManager(true)} title="Quick steps">
               <FlashIcon size={15} />Quick steps
-            </button>
-          </div>
-
-          <div className="toolbar-sep" />
-
-          <div className="toolbar-group">
-            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleMarkRead(selectedMessageId, true)} title="Mark as read">
-              <MailReadIcon size={15} />Mark as read
-            </button>
-            <button className="toolbar-btn" disabled={!hasSelectedMessage} onClick={() => selectedMessageId && handleMarkRead(selectedMessageId, false)} title="Mark as unread">
-              <MailUnreadIcon size={15} />Mark as unread
             </button>
           </div>
 
@@ -680,14 +643,10 @@ export function MailView({ isActive }: MailViewProps) {
           {/* Reading Pane */}
           <ReadingPane
             messageId={selectedMessageId}
-            messages={messages}
-            selectedIdx={selectedIdx}
-            onNavigate={handleNavigate}
             onDelete={handleDelete}
+            onArchive={handleArchive}
             onMarkRead={handleMarkRead}
             onFlag={handleFlag}
-            onMove={handleMove}
-            onClose={() => setSelectedMessageId(null)}
             replyMode={replyMode}
             onReplyModeChange={setReplyMode}
           />

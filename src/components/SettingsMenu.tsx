@@ -10,7 +10,16 @@ import { useSearchStore } from '../store/search';
 import { TelegramSettings } from '../features/smtp-forwarding/TelegramSettings';
 import { FeedSyncSettings } from '../features/feed/FeedSyncSettings';
 import { loadFeedSettings } from '../services/storage/feed';
-import { FilterIcon, ChatIcon, ChevronRightIcon, PlugConnectedIcon } from './icons';
+import { getMailSyncIntervalSeconds, setMailSyncIntervalSeconds } from '../services/storage/syncSettings';
+import { FilterIcon, ChatIcon, ChevronRightIcon, PlugConnectedIcon, ArrowSyncIcon } from './icons';
+
+const MAIL_SYNC_INTERVAL_OPTIONS = [
+  { value: 15, label: 'Every 15 seconds' },
+  { value: 30, label: 'Every 30 seconds' },
+  { value: 60, label: 'Every 1 minute' },
+  { value: 120, label: 'Every 2 minutes' },
+  { value: 300, label: 'Every 5 minutes' },
+];
 
 interface SettingsMenuProps {
   onClose: () => void;
@@ -20,6 +29,7 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
   const search = useSearchStore();
   const [showTelegram, setShowTelegram] = useState(false);
   const [showFeedSync, setShowFeedSync] = useState(false);
+  const [syncInterval, setSyncInterval] = useState(getMailSyncIntervalSeconds);
   const feedConnected = !!loadFeedSettings();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -51,6 +61,26 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
             <span className="settings-menu-switch-dot" />
           </span>
         </button>
+
+        <div className="settings-menu-section-label">Mail</div>
+        <div className="settings-menu-item settings-menu-item-static">
+          <ArrowSyncIcon size={18} className="settings-menu-item-icon" />
+          <span className="settings-menu-item-label">
+            <span>Refresh interval</span>
+            <span className="settings-menu-item-hint">How often the app checks for new mail</span>
+          </span>
+          <select
+            className="settings-menu-item-select"
+            value={syncInterval}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setSyncInterval(v);
+              setMailSyncIntervalSeconds(v);
+            }}
+          >
+            {MAIL_SYNC_INTERVAL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
 
         <div className="settings-menu-section-label">Notifications</div>
         <button

@@ -688,6 +688,19 @@
   margin-top: 4px;
 }
 
+.email-recipients-label { font-weight: 600; }
+
+.email-recipients-more {
+  border: none;
+  background: none;
+  padding: 0;
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--primary);
+  cursor: pointer;
+}
+.email-recipients-more:hover { text-decoration: underline; }
+
 /* Email body */
 .email-body-container {
   flex: 1;
@@ -711,82 +724,94 @@
 .email-body a { color: var(--primary); }
 
 /* Neutralize quoted-thread indicator lines in received/quoted HTML — some
-   mail clients emit these with a purple/colored border-left; the app's
-   message-tree line should always read as a plain neutral black line. */
+   mail clients emit these with a heavy purple/colored border-left; the app's
+   message-tree line reads as a slim neutral gray line instead. */
 .email-body blockquote,
 .message-history-body blockquote {
-  border-left: 3px solid #000 !important;
-  border-color: #000 !important;
+  border-left: 1.5px solid #c8c6c4 !important;
+  border-color: #c8c6c4 !important;
   padding-left: 12px;
   margin-left: 0;
   color: var(--text-secondary);
 }
 
-/* Attachments */
+/* Attachments — horizontal padding intentionally omitted here; the section
+   sits inside .email-body-container, which already supplies it, so the
+   cards line up flush with the message body's left/right edge instead of
+   being indented an extra 20px past it. */
 .attachments-section { flex-shrink: 0; }
 
 .attachments-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 20px 4px;
+  padding-bottom: 4px;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
   border-top: 1px solid var(--border-light);
+  padding-top: 8px;
 }
 
 .attachments-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0 20px 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
 }
 
 .attachment-chip {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
+  gap: 10px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   cursor: pointer;
   background: var(--surface);
-  font-size: 12px;
-  color: var(--text);
+  text-align: left;
   transition: all 0.1s;
+  min-width: 0;
 }
 
 .attachment-chip:hover {
   background: var(--primary-light);
   border-color: var(--primary);
-  color: var(--primary);
 }
 
-.attachment-chip svg { width: 14px; height: 14px; fill: currentColor; }
-
 .attachment-chip-icon {
-  width: 18px; height: 18px;
-  border-radius: 3px;
+  width: 28px; height: 28px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
 }
-.attachment-chip-icon svg { width: 11px; height: 11px; fill: var(--text-secondary); }
-.attachment-chip-icon.pdf { background: #d13438; }
-.attachment-chip-icon.pdf svg { fill: #fff; }
-.attachment-chip-icon.doc { background: #2b579a; }
-.attachment-chip-icon.doc svg { fill: #fff; }
-.attachment-chip-icon.xls { background: #217346; }
-.attachment-chip-icon.xls svg { fill: #fff; }
-.attachment-chip-icon.img { background: #0078d4; }
-.attachment-chip-icon.img svg { fill: #fff; }
-.attachment-chip-icon.ppt { background: #c43e1c; }
-.attachment-chip-icon.ppt svg { fill: #fff; }
-.attachment-chip-icon.zip { background: #8a8886; }
-.attachment-chip-icon.zip svg { fill: #fff; }
-.attachment-chip-icon.other { background: var(--surface-alt); }
+.attachment-chip-icon svg,
+.attachment-chip-icon .file-type-icon { width: 100%; height: 100%; }
+
+/* Generic fallback (no branded icon for this extension) */
+.attachment-chip-icon.other {
+  background: var(--surface-alt);
+  border-radius: 4px;
+}
+.attachment-chip-icon.other svg { width: 16px; height: 16px; fill: var(--text-secondary); }
+
+.attachment-chip-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+
+.attachment-chip-name {
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-chip-size {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
 
 /* Reply panel — the whole panel is the single scroll container (recipients,
    mini-toolbar, editor, footer, and the original message all flow inside it). */

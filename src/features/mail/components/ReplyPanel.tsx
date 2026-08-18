@@ -282,7 +282,7 @@ export function ReplyPanel({ message, mode, onClose }: ReplyPanelProps) {
       const sigHtml = selectedSig?.content || '';
       const from = message.from?.emailAddress;
       const quotedHtml =
-        `<div style="border-left:3px solid #000;padding-left:12px;margin:16px 0 0 0;color:#605E5C;font-family:inherit">` +
+        `<div style="border-left:1.5px solid #c8c6c4;padding-left:12px;margin:16px 0 0 0;color:#605E5C;font-family:inherit">` +
         `<p style="margin:0 0 6px 0;font-size:12px;color:#8A8886">` +
         `<b>From:</b> ${from?.name && from.name !== from.address ? `${escHtml(from.name)} &lt;${escHtml(from.address || '')}&gt;` : escHtml(from?.address || '')}<br>` +
         `<b>Sent:</b> ${escHtml(formatFullDate(message.receivedDateTime))}<br>` +

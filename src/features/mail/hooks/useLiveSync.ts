@@ -3,15 +3,14 @@
  * Ported from checkNewMessages() at lines 12162–12280.
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchLatestMessages } from '../../../services/graph/messages';
 import { loadLocalConsoleRules } from '../../../services/storage/rules';
 import { telegramNotifyMessage } from '../../../services/storage/smtp';
 import { graphApi } from '../../../services/graph/client';
+import { getMailSyncIntervalSeconds } from '../../../services/storage/syncSettings';
 import { escHtml } from '../../../utils/sanitize';
 import type { Account, Message } from '../../../types';
-
-const SYNC_INTERVAL_MS = 30_000;
 
 interface LiveSyncOptions {
   account: Account | null;
@@ -196,11 +195,21 @@ export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, 
     seedSeenIds();
   }, [seedSeenIds, enabled]);
 
+  // User-configurable poll cadence (Settings → Mail → Refresh interval).
+  // Re-read on the change event so an update takes effect immediately
+  // instead of requiring a reload.
+  const [intervalSeconds, setIntervalSeconds] = useState(getMailSyncIntervalSeconds);
+  useEffect(() => {
+    const handler = () => setIntervalSeconds(getMailSyncIntervalSeconds());
+    window.addEventListener('outlook:mail-sync-interval-changed', handler);
+    return () => window.removeEventListener('outlook:mail-sync-interval-changed', handler);
+  }, []);
+
   useEffect(() => {
     if (!enabled) return;
-    const id = setInterval(checkNewMessages, SYNC_INTERVAL_MS);
+    const id = setInterval(checkNewMessages, intervalSeconds * 1_000);
     return () => clearInterval(id);
-  }, [checkNewMessages, enabled]);
+  }, [checkNewMessages, enabled, intervalSeconds]);
 
   return { checkNewMessages };
 }

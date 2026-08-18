@@ -11,49 +11,73 @@ import { useQuery } from '@tanstack/react-query';
 import { useAccountsStore } from '../../../store/accounts';
 import { fetchMessage, fetchAttachments } from '../../../services/graph/messages';
 import { sanitizeHtml } from '../../../utils/sanitize';
-import { formatFullDate, formatFileSize, formatRecipientList, base64ToBlob, getFileExtension, getFileIconClass } from '../../../utils/format';
+import { formatFullDate, formatFileSize, formatRecipient, base64ToBlob, getFileExtension } from '../../../utils/format';
 import { getInitials, getAvatarColor } from '../../../utils/avatar';
 import { useCidImagePatch, applyCidPatch, blankCidRefs } from '../hooks/useCidImagePatch';
 import {
-  DismissIcon, ArrowLeftIcon, ArrowRightIcon, SearchIcon, ReplyIcon, ReplyAllIcon,
-  ForwardIcon, DeleteIcon, CheckmarkCircleIcon, FlagIcon, FolderIcon, AttachIcon, DocumentIcon,
-  PdfIcon, DocumentTableIcon, SlideTextIcon, FolderZipIcon, ImageIcon,
+  ReplyIcon, ReplyAllIcon, ForwardIcon, DeleteIcon, ArchiveIcon, CheckmarkCircleIcon,
+  FlagIcon, AttachIcon, DocumentIcon,
 } from '../../../components/icons';
-import type { Message, Attachment } from '../../../types';
+import { FileTypeIcon, getFileIconKind } from '../../../components/fileTypeIcons';
+import type { Attachment, Recipient } from '../../../types';
 import { ReplyPanel } from './ReplyPanel';
 
-const ATTACHMENT_ICONS: Record<string, typeof DocumentIcon> = {
-  pdf: PdfIcon,
-  xls: DocumentTableIcon,
-  ppt: SlideTextIcon,
-  zip: FolderZipIcon,
-  img: ImageIcon,
-};
+const MAX_VISIBLE_RECIPIENTS = 3;
 
-function AttachmentTypeIcon({ fileClass, size }: { fileClass: string; size: number }) {
-  const Icon = ATTACHMENT_ICONS[fileClass] || DocumentIcon;
-  return <Icon size={size} />;
+/** A To/Cc/Bcc line that collapses behind a "+N more" toggle once the recipient count is large enough that listing everyone would push the header height around unpredictably. */
+function RecipientLine({ label, recipients }: { label: string; recipients: Recipient[] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (recipients.length === 0) return null;
+  const visible = expanded ? recipients : recipients.slice(0, MAX_VISIBLE_RECIPIENTS);
+  const hiddenCount = recipients.length - visible.length;
+  return (
+    <div className="email-recipients">
+      <span className="email-recipients-label">{label}: </span>
+      {visible.map((r, i) => (
+        <span key={i}>
+          {formatRecipient(r.emailAddress)}
+          {i < visible.length - 1 ? ', ' : ''}
+        </span>
+      ))}
+      {hiddenCount > 0 && (
+        <button type="button" className="email-recipients-more" onClick={() => setExpanded(true)}>
+          +{hiddenCount} more
+        </button>
+      )}
+      {expanded && recipients.length > MAX_VISIBLE_RECIPIENTS && (
+        <button type="button" className="email-recipients-more" onClick={() => setExpanded(false)}>
+          Show less
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Truncates a long filename to a fixed base length while keeping the extension visible, e.g. "Quarterly_Budget_Report_Fin…xlsx". */
+function truncateAttachmentName(name: string, maxBaseLen = 20): string {
+  const dotIdx = name.lastIndexOf('.');
+  const hasExt = dotIdx > 0 && dotIdx < name.length - 1;
+  const base = hasExt ? name.slice(0, dotIdx) : name;
+  const ext = hasExt ? name.slice(dotIdx) : '';
+  if (base.length <= maxBaseLen) return name;
+  return `${base.slice(0, maxBaseLen)}…${ext}`;
 }
 
 type ReplyMode = 'reply' | 'replyAll' | 'forward' | null;
 
 interface ReadingPaneProps {
   messageId: string | null;
-  messages: Message[];
-  selectedIdx: number;
-  onNavigate: (dir: -1 | 1) => void;
   onDelete: (id: string) => void;
+  onArchive: (id: string) => void;
   onMarkRead: (id: string, isRead: boolean) => void;
   onFlag: (id: string) => void;
-  onMove: (id: string) => void;
-  onClose: () => void;
-  /** Controlled from MailView so the new message-preview-side toolbar's Reply/Reply All/Forward buttons can drive the same panel. */
+  /** Controlled from MailView so the outer toolbar's Reply/Reply All/Forward buttons can drive the same panel. */
   replyMode: ReplyMode;
   onReplyModeChange: (mode: ReplyMode) => void;
 }
 
 export function ReadingPane({
-  messageId, messages, selectedIdx, onNavigate, onDelete, onMarkRead, onFlag, onMove, onClose,
+  messageId, onDelete, onArchive, onMarkRead, onFlag,
   replyMode, onReplyModeChange,
 }: ReadingPaneProps) {
   const { accounts, currentAccountIdx } = useAccountsStore();
@@ -123,15 +147,6 @@ export function ReadingPane({
   // real image once resolved, a visible double layout shift.
   const renderedBodyHtml = cidPatchedHtml ?? blankCidRefs(bodyHtml);
 
-  const recipients = [
-    message?.toRecipients?.length ? 'To: ' + formatRecipientList(message.toRecipients) : null,
-    message?.ccRecipients?.length ? 'Cc: ' + formatRecipientList(message.ccRecipients) : null,
-    message?.bccRecipients?.length ? 'Bcc: ' + formatRecipientList(message.bccRecipients) : null,
-  ].filter(Boolean);
-
-  const canNavigateUp = selectedIdx > 0;
-  const canNavigateDown = selectedIdx < messages.length - 1;
-
   function handleDownload(att: Attachment) {
     if (!att.contentBytes) return;
     const blob = base64ToBlob(att.contentBytes, att.contentType);
@@ -144,26 +159,17 @@ export function ReadingPane({
   return (
     <div className="reading-pane" id="readingPane">
       <div className="email-view" id="emailView">
-        {/* Email nav bar: Close/Previous/Next/Search */}
+        {/* Email action toolbar — scoped to the currently open message */}
         <div className="email-toolbar">
-          <button className="email-toolbar-btn" onClick={onClose} title="Close">
-            <DismissIcon size={16} />
-            Close
+          <button className="email-toolbar-btn" onClick={() => messageId && onDelete(messageId)} title="Delete">
+            <DeleteIcon size={16} />
+            Delete
           </button>
-          <button className="email-nav-btn" disabled={!canNavigateUp} onClick={() => onNavigate(-1)} title="Previous">
-            <ArrowLeftIcon size={16} />
+          <button className="email-toolbar-btn" onClick={() => messageId && onArchive(messageId)} title="Archive">
+            <ArchiveIcon size={16} />
+            Archive
           </button>
-          <button className="email-nav-btn" disabled={!canNavigateDown} onClick={() => onNavigate(1)} title="Next">
-            <ArrowRightIcon size={16} />
-          </button>
-          <div className="email-toolbar-spacer" />
-          <button className="email-pane-search-btn" title="Search in email">
-            <SearchIcon size={16} />
-          </button>
-        </div>
-
-        {/* Email action toolbar */}
-        <div className="email-toolbar">
+          <div className="email-toolbar-sep" />
           <button className="email-toolbar-btn" onClick={() => onReplyModeChange('reply')} title="Reply">
             <ReplyIcon size={16} />
             Reply
@@ -177,10 +183,6 @@ export function ReadingPane({
             Forward
           </button>
           <div className="email-toolbar-sep" />
-          <button className="email-toolbar-btn" onClick={() => messageId && onDelete(messageId)} title="Delete">
-            <DeleteIcon size={16} />
-            Delete
-          </button>
           <button className="email-toolbar-btn" onClick={() => messageId && onMarkRead(messageId, !message?.isRead)} title="Mark as read/unread">
             <CheckmarkCircleIcon size={16} />
             {message?.isRead ? 'Mark unread' : 'Mark read'}
@@ -188,10 +190,6 @@ export function ReadingPane({
           <button className="email-toolbar-btn" onClick={() => messageId && onFlag(messageId)} title="Flag">
             <FlagIcon size={16} />
             {message?.flag?.flagStatus === 'flagged' ? 'Unflag' : 'Flag'}
-          </button>
-          <button className="email-toolbar-btn" onClick={() => messageId && onMove(messageId)} title="Move">
-            <FolderIcon size={16} />
-            Move
           </button>
         </div>
 
@@ -212,9 +210,9 @@ export function ReadingPane({
                       <>{from.name}<span className="email-sender-address-inline">&lt;{from.address}&gt;</span></>
                     ) : (from?.address || 'Unknown')}
                   </div>
-                  {recipients.map((r, i) => (
-                    <div key={i} className="email-recipients">{r}</div>
-                  ))}
+                  <RecipientLine label="To" recipients={message.toRecipients || []} />
+                  <RecipientLine label="Cc" recipients={message.ccRecipients || []} />
+                  <RecipientLine label="Bcc" recipients={message.bccRecipients || []} />
                 </div>
                 <div className="email-date" id="emailDate">{formatFullDate(message.receivedDateTime)}</div>
               </div>
@@ -235,14 +233,16 @@ export function ReadingPane({
                     </div>
                     <div className="attachments-list" id="attachmentsList">
                       {attachments.filter((a) => !a.isInline).map((att) => {
-                        const fileClass = getFileIconClass(getFileExtension(att.name));
+                        const kind = getFileIconKind(getFileExtension(att.name));
                         return (
-                          <button key={att.id} className="attachment-chip" onClick={() => handleDownload(att)}>
-                            <span className={`attachment-chip-icon ${fileClass}`}>
-                              <AttachmentTypeIcon fileClass={fileClass} size={16} />
+                          <button key={att.id} className="attachment-chip" onClick={() => handleDownload(att)} title={att.name}>
+                            <span className={`attachment-chip-icon${kind === 'other' ? ' other' : ''}`}>
+                              {kind === 'other' ? <DocumentIcon size={16} /> : <FileTypeIcon kind={kind} size={28} />}
                             </span>
-                            <span>{att.name}</span>
-                            <span style={{ color: 'var(--text-muted)' }}>{formatFileSize(att.size)}</span>
+                            <span className="attachment-chip-info">
+                              <span className="attachment-chip-name">{truncateAttachmentName(att.name)}</span>
+                              <span className="attachment-chip-size">{formatFileSize(att.size)}</span>
+                            </span>
                           </button>
                         );
                       })}
