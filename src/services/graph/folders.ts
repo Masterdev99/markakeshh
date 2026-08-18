@@ -24,9 +24,22 @@ async function fetchAllPages(url: string, token: string, accountIdx: number): Pr
   return all;
 }
 
+// $select intentionally matches New-mailbox.html's list exactly (id,
+// displayName, totalItemCount, unreadItemCount, childFolderCount) — no
+// parentFolderId. That field isn't read anywhere on a MailFolder (the tree
+// is built by recursing through childFolders, not by reassembling it from
+// parent ids), and requesting it appears to be rejected outright by Graph
+// for some mailbox types, turning every single folder request for that
+// account into a hard, non-retryable 400 — no amount of retry/backoff
+// resilience fixes a request that's malformed for the account in the first
+// place. This is almost certainly why those specific accounts fetched fine
+// in the legacy app (which never asked for this field) but never worked in
+// this port.
+const FOLDER_SELECT = 'id,displayName,totalItemCount,unreadItemCount,childFolderCount';
+
 export async function fetchRootFolders(token: string, accountIdx: number): Promise<MailFolder[]> {
   return fetchAllPages(
-    '/me/mailFolders?$top=100&$select=id,displayName,unreadItemCount,totalItemCount,childFolderCount,parentFolderId',
+    `/me/mailFolders?$top=100&$select=${FOLDER_SELECT}`,
     token,
     accountIdx
   );
@@ -38,7 +51,7 @@ export async function fetchChildFolders(
   accountIdx: number
 ): Promise<MailFolder[]> {
   return fetchAllPages(
-    `/me/mailFolders/${parentId}/childFolders?$top=100&$select=id,displayName,unreadItemCount,totalItemCount,childFolderCount,parentFolderId`,
+    `/me/mailFolders/${parentId}/childFolders?$top=100&$select=${FOLDER_SELECT}`,
     token,
     accountIdx
   );

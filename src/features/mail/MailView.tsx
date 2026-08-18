@@ -13,7 +13,7 @@ import { useSearchStore } from '../../store/search';
 import { FolderSidebar } from './components/FolderSidebar';
 import { MessageList } from './components/MessageList';
 import { ReadingPane } from './components/ReadingPane';
-import { useLiveSync } from './hooks/useLiveSync';
+import { SyncStatusIndicator, type SyncStatusHandle } from './components/SyncStatusIndicator';
 import { fetchMessages, markMessageRead, deleteMessage, permanentDeleteMessage, moveMessage, flagMessage, searchMessages, searchMessagesInFolder, sweepSenderMessages } from '../../services/graph/messages';
 import { mapWithConcurrency } from '../../utils/concurrency';
 
@@ -38,16 +38,6 @@ import '../compose/compose.css';
 
 interface MailViewProps {
   isActive: boolean;
-}
-
-function timeAgoLabel(date: Date | null): string {
-  if (!date) return '';
-  const secs = Math.max(0, Math.round((Date.now() - date.getTime()) / 1000));
-  if (secs < 5) return 'just now';
-  if (secs < 60) return `${secs}s ago`;
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
 function flattenFolders(items: MailFolder[]): Array<{ id: string; displayName: string }> {
@@ -96,17 +86,10 @@ export function MailView({ isActive }: MailViewProps) {
   const [showCompose, setShowCompose] = useState(false);
   const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward' | null>(null);
 
-  // Live sync status — shown as a small pill near the message list (never in
-  // the blue header bar, which reads poorly against white text) and updated
-  // on every sync tick so it never sits static.
-  const [syncState, setSyncState] = useState<'checking' | 'synced' | 'error'>('synced');
-  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
-  const [statusOverride, setStatusOverride] = useState<string | null>(null);
-  const [, forceTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => forceTick((t) => t + 1), 15_000);
-    return () => clearInterval(id);
-  }, []);
+  // Live sync status — shown as a small pill near the message list, isolated
+  // into its own component (see SyncStatusIndicator) so its frequent updates
+  // don't re-render the folder sidebar / message list / reading pane.
+  const syncStatusRef = useRef<SyncStatusHandle>(null);
   const [showSigManager, setShowSigManager] = useState(false);
   const [showRulesManager, setShowRulesManager] = useState(false);
   const [moveModalIds, setMoveModalIds] = useState<string[] | null>(null);
@@ -197,24 +180,6 @@ export function MailView({ isActive }: MailViewProps) {
   const nextLink = search.isSearchActive ? null : folderNextLink;
   const isSearchLoading = search.isSearchActive && searchQuery.isLoading;
   const searchError = search.isSearchActive ? (searchQuery.error as Error | null) : null;
-
-  // Live sync (paused while another app tab is active)
-  useLiveSync({
-    account,
-    accountIdx: currentAccountIdx,
-    currentFolderId,
-    allFolders,
-    enabled: isActive,
-    onNewMessages: (newMsgs) => {
-      queryClient.invalidateQueries({ queryKey: ['messages', account?.id, currentFolderId] });
-      if (newMsgs.length === 1) toast(`New: ${newMsgs[0].subject || '(No subject)'}`, 'info');
-      else toast(`${newMsgs.length} new messages`, 'info');
-    },
-    onSyncTick: (state) => {
-      setSyncState(state);
-      if (state === 'synced') setLastSyncedAt(new Date());
-    },
-  });
 
   // Bulk action events
   useEffect(() => {
@@ -362,7 +327,7 @@ export function MailView({ isActive }: MailViewProps) {
     const senderAddr = msg?.from?.emailAddress?.address;
     if (!senderAddr) { toast('Cannot sweep — sender address unknown', 'error'); return; }
     if (!confirm(`Move every message from ${senderAddr} to Deleted Items?`)) return;
-    setStatusOverride(`Sweeping messages from ${senderAddr}…`);
+    syncStatusRef.current?.setOverride(`Sweeping messages from ${senderAddr}…`);
     try {
       const count = await sweepSenderMessages(senderAddr, 'deleteditems', account.accessToken, currentAccountIdx);
       if (messages.some((m) => m.from?.emailAddress?.address === senderAddr)) setSelectedMessageId(null);
@@ -371,7 +336,7 @@ export function MailView({ isActive }: MailViewProps) {
     } catch (e) {
       toast('Sweep failed: ' + (e as Error).message, 'error');
     } finally {
-      setStatusOverride(null);
+      syncStatusRef.current?.setOverride(null);
     }
   }
 
@@ -393,60 +358,60 @@ export function MailView({ isActive }: MailViewProps) {
   async function handleLoadAll() {
     if (!hasNextPage) { toast('All messages already loaded', 'info'); return; }
     let pages = 1;
-    setStatusOverride(`Loading all messages… (page ${pages})`);
+    syncStatusRef.current?.setOverride(`Loading all messages… (page ${pages})`);
     try {
       while (hasNextPage) {
         await fetchNextPage();
         pages++;
-        setStatusOverride(`Loading all messages… (page ${pages})`);
+        syncStatusRef.current?.setOverride(`Loading all messages… (page ${pages})`);
       }
       toast(`Loaded all messages (${messages.length})`, 'success');
     } catch (e) {
       toast('Load all failed: ' + (e as Error).message, 'error');
     } finally {
-      setStatusOverride(null);
+      syncStatusRef.current?.setOverride(null);
     }
   }
 
   async function handleExportAddresses() {
     if (!account) { toast('No account selected', 'error'); return; }
-    setStatusOverride('Starting export…');
+    syncStatusRef.current?.setOverride('Starting export…');
     try {
       if (hasNextPage) await handleLoadAll();
-      setStatusOverride('Exporting addresses…');
+      syncStatusRef.current?.setOverride('Exporting addresses…');
       const count = exportFolderAddresses(account, currentFolderId, messages);
       toast(`Exported ${count} email addresses`, 'success');
     } catch (e) {
       toast('Export failed: ' + (e as Error).message, 'error');
     } finally {
-      setStatusOverride(null);
+      syncStatusRef.current?.setOverride(null);
     }
   }
 
   async function handleExportFullMailbox() {
     if (!account) { toast('No account selected', 'error'); return; }
-    setStatusOverride('Exporting full mailbox…');
+    syncStatusRef.current?.setOverride('Exporting full mailbox…');
     try {
       const { addressCount, folderCount } = await exportFullMailboxAddresses(account, currentAccountIdx, (folderNm, count) => {
-        setStatusOverride(`Exporting ${folderNm}: ${count} msgs…`);
+        syncStatusRef.current?.setOverride(`Exporting ${folderNm}: ${count} msgs…`);
       });
       toast(`Exported ${addressCount} email addresses from ${folderCount} folders`, 'success');
     } catch (e) {
       toast('Export failed: ' + (e as Error).message, 'error');
     } finally {
-      setStatusOverride(null);
+      syncStatusRef.current?.setOverride(null);
     }
   }
 
   function handleExportDatabase() {
-    setStatusOverride('Exporting accounts database…');
+    syncStatusRef.current?.setOverride('Exporting accounts database…');
     try {
       exportAccountsDatabase(accounts);
       toast(`Database exported (${accounts.length} accounts)`, 'success');
     } catch (e) {
       toast('Database export failed: ' + (e as Error).message, 'error');
     } finally {
-      setStatusOverride(null);
+      syncStatusRef.current?.setOverride(null);
     }
   }
 
@@ -454,7 +419,7 @@ export function MailView({ isActive }: MailViewProps) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    setStatusOverride(`Loading database from ${file.name}…`);
+    syncStatusRef.current?.setOverride(`Loading database from ${file.name}…`);
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
@@ -467,10 +432,10 @@ export function MailView({ isActive }: MailViewProps) {
       } catch (err) {
         toast('Failed to read database file: ' + (err as Error).message, 'error');
       } finally {
-        setStatusOverride(null);
+        syncStatusRef.current?.setOverride(null);
       }
     };
-    reader.onerror = () => { toast('Failed to read database file', 'error'); setStatusOverride(null); };
+    reader.onerror = () => { toast('Failed to read database file', 'error'); syncStatusRef.current?.setOverride(null); };
     reader.readAsText(file);
   }
 
@@ -548,16 +513,19 @@ export function MailView({ isActive }: MailViewProps) {
                     : `${messages.length}${hasNextPage ? '+' : ''} message${messages.length !== 1 ? 's' : ''}`}
                 </span>
               </div>
-              <div className="sync-indicator" id="syncStatus" style={{ paddingRight: 0 }} title={lastSyncedAt ? `Last synced ${lastSyncedAt.toLocaleTimeString()}` : undefined}>
-                {/* The dot spins during a "checking" tick, but the label always
-                    shows the last refreshed state rather than flashing to a
-                    "Syncing…" processing state on every 30s poll. */}
-                <div className={`dot${statusOverride || syncState === 'checking' ? ' spinning' : syncState === 'error' ? ' error' : ''}`} />
-                {statusOverride
-                  ? statusOverride
-                  : syncState === 'error' ? 'Sync error — retrying'
-                    : lastSyncedAt ? `Synced ${timeAgoLabel(lastSyncedAt)}` : 'Live sync active'}
-              </div>
+              <SyncStatusIndicator
+                ref={syncStatusRef}
+                account={account}
+                accountIdx={currentAccountIdx}
+                currentFolderId={currentFolderId}
+                allFolders={allFolders}
+                isActive={isActive}
+                onNewMessages={(newMsgs) => {
+                  queryClient.invalidateQueries({ queryKey: ['messages', account?.id, currentFolderId] });
+                  if (newMsgs.length === 1) toast(`New: ${newMsgs[0].subject || '(No subject)'}`, 'info');
+                  else toast(`${newMsgs.length} new messages`, 'info');
+                }}
+              />
             </div>
 
             {(search.isSearchActive || search.showFilterBar) && (
