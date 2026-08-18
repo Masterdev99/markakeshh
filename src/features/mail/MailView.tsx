@@ -27,7 +27,7 @@ import { RulesManager } from '../rules/RulesManager';
 import { Modal } from '../../components/Modal';
 import { exportFolderAddresses, exportFullMailboxAddresses, exportAccountsDatabase, importAccountsDatabase } from '../../services/export';
 import {
-  MailAddIcon, SignatureIcon, FilterIcon, ArrowDownloadIcon, CloudIcon,
+  MailAddIcon, SignatureIcon, ArrowDownloadIcon, CloudIcon,
   DatabaseIcon, ArrowUploadIcon, DismissIcon, ShieldErrorIcon,
   CheckmarkCircleIcon, BroomIcon, FolderIcon, FlashIcon,
 } from '../../components/icons';
@@ -471,9 +471,6 @@ export function MailView({ isActive }: MailViewProps) {
           </button>
           <button className="toolbar-btn" onClick={() => setShowSigManager(true)} title="Signatures" id="signaturesBtn">
             <SignatureIcon size={15} />
-          </button>
-          <button className="toolbar-btn" onClick={() => setShowRulesManager(true)} title="Rules" id="rulesBtn">
-            <FilterIcon size={15} />
           </button>
         </div>
 
