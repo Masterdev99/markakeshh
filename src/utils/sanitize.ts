@@ -133,3 +133,31 @@ export function escHtml(str: string): string {
   div.textContent = str || '';
   return div.innerHTML;
 }
+
+/**
+ * Flattens an email body (HTML or plain text) into whitespace-collapsed
+ * plain text, for use in previews (e.g. the Telegram rule-notification body).
+ *
+ * Uses a real DOM parse rather than a `<[^>]+>` regex strip: a regex both
+ * leaves HTML entities (&nbsp;, &rsquo;, &amp;, &#39;, curly-quote entities,
+ * etc.) behind as literal text — which is what produced garbled special
+ * characters/unicode in notifications — and can eat legitimate plain-text
+ * content that merely contains angle brackets (e.g. "3 < 5 > 2" matches
+ * `<[^>]+>` and gets silently deleted). Parsing as a DOM decodes entities
+ * for free and only strips things that are actually markup.
+ */
+export function htmlToPlainText(content: string, contentType?: string): string {
+  if (!content) return '';
+  if (contentType === 'text') return content.replace(/\s+/g, ' ').trim();
+  try {
+    const doc = new DOMParser().parseFromString(content, 'text/html');
+    doc.querySelectorAll('script, style').forEach((el) => el.remove());
+    return (doc.body?.textContent || '').replace(/\s+/g, ' ').trim();
+  } catch {
+    return content
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+}

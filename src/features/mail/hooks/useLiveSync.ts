@@ -9,7 +9,7 @@ import { loadLocalConsoleRules } from '../../../services/storage/rules';
 import { telegramNotifyMessage } from '../../../services/storage/smtp';
 import { graphApi } from '../../../services/graph/client';
 import { getMailSyncIntervalSeconds } from '../../../services/storage/syncSettings';
-import { escHtml } from '../../../utils/sanitize';
+import { escHtml, htmlToPlainText } from '../../../utils/sanitize';
 import type { Account, Message } from '../../../types';
 
 interface LiveSyncOptions {
@@ -149,15 +149,16 @@ export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, 
                 })
               : '';
             const hasAtt = msg?.hasAttachments ? ' 📎' : '';
-            const rawBody = body
-              .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-              .replace(/<[^>]+>/g, '')
-              .replace(/\s+/g, ' ')
-              .trim();
-            const preview = rawBody.length > 300 ? rawBody.slice(0, 300) + '…' : rawBody || '(empty body)';
+            const plainBody = htmlToPlainText(body, msg?.body?.contentType);
+            const preview = plainBody.length > 300 ? plainBody.slice(0, 300) + '…' : plainBody || '(empty body)';
+            const mailboxLabel = account.label || account.displayName || account.email;
+            const mailboxLine = mailboxLabel && mailboxLabel !== account.email
+              ? `${escHtml(mailboxLabel)} (${escHtml(account.email)})`
+              : escHtml(account.email);
             const text = [
               `📧 <b>New email matched a rule</b>${hasAtt}`,
               '',
+              `<b>Mailbox:</b> ${mailboxLine}`,
               `<b>From:</b> ${escHtml(fromName)} &lt;${escHtml(fromAddr)}&gt;`,
               `<b>Subject:</b> ${escHtml(subject || '(no subject)')}`,
               receivedDate ? `<b>Received:</b> ${escHtml(receivedDate)}` : null,
