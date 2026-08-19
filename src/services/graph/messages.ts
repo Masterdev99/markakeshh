@@ -290,10 +290,15 @@ export async function updateDraftMessage(
 // Deliberately minimal: this is the most frequently-issued request in the
 // app (every live-sync poll, as often as every 15s) and its result is never
 // rendered — only used to detect new-message ids and, for rule matching, to
-// read hasAttachments/isRead (see useLiveSync's applyLocalRuleActions,
-// which does its own separate detailed fetch per matched candidate for
-// subject/from/body/recipients rather than needing them here).
-const SYNC_SELECT = 'id,receivedDateTime,isRead,hasAttachments';
+// read fields off the list item directly (see useLiveSync's
+// applyLocalRuleActions, which does its own separate detailed fetch per
+// matched candidate for subject/from/body/recipients rather than needing
+// them here). importance/hasAttachments/isRead/categories mirror
+// New-mailbox.html's checkNewMessages() $select (lines 12736) — rule
+// conditions like "importanceIs" and "categoryIs" read these straight off
+// the list item, so omitting them here silently breaks those condition
+// types even though the matching logic itself is correct.
+const SYNC_SELECT = 'id,receivedDateTime,isRead,hasAttachments,importance,categories';
 
 export async function fetchLatestMessages(
   folderId: string,

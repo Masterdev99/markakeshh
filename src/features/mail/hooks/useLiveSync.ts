@@ -22,10 +22,12 @@ interface LiveSyncOptions {
   onSyncTick?: (state: 'checking' | 'synced' | 'error') => void;
   /** Fired once, the first time the initial seed fetch succeeds for this account/folder — mirrors checkNewMessages()'s "messages.length === 0" first-load branch in New-mailbox.html, which re-fetches the folder tree at that point too (not just when new mail later arrives). Gives an account whose *initial* folder fetch happened to flake out a second chance right away instead of waiting for mail activity or a manual retry. */
   onFirstSync?: () => void;
+  /** Fired once after a batch of local rule actions (move/delete/markAsRead/forward) finishes running against newly-arrived mail — mirrors New-mailbox.html's applyLocalRuleActions(), which unconditionally calls renderMessages()/updateMessageCount()/loadAllFolders() once it's done processing candidates (lines 13168-13170). Without this, a rule's server-side action (e.g. moving a message out of the inbox) completes correctly but the UI never re-fetches to show it, so the rule appears to do nothing. */
+  onRuleActionsApplied?: () => void;
   enabled?: boolean;
 }
 
-export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, onNewMessages, onSyncTick, onFirstSync, enabled = true }: LiveSyncOptions) {
+export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, onNewMessages, onSyncTick, onFirstSync, onRuleActionsApplied, enabled = true }: LiveSyncOptions) {
   const seenIdsRef = useRef<Set<string>>(new Set());
   const keywordLoggedRef = useRef<Set<string>>(new Set());
 
@@ -45,6 +47,8 @@ export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, 
   onSyncTickRef.current = onSyncTick;
   const onFirstSyncRef = useRef(onFirstSync);
   onFirstSyncRef.current = onFirstSync;
+  const onRuleActionsAppliedRef = useRef(onRuleActionsApplied);
+  onRuleActionsAppliedRef.current = onRuleActionsApplied;
   const allFoldersRef = useRef(allFolders);
   allFoldersRef.current = allFolders;
 
@@ -107,6 +111,13 @@ export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, 
             if (type === 'subjectOrBodyIncludes') { const h = (subject + '\n' + body).toLowerCase(); return any((v) => h.includes(v.toLowerCase())); }
             if (type === 'hasAttachment') return m.hasAttachments === true;
             if (type === 'isUnread') return m.isRead === false;
+            if (type === 'importanceIs') return any((v) => (m.importance || '').toLowerCase() === v.toLowerCase());
+            if (type === 'sizeGreaterThan') { const kb = (m.size || 0) / 1024; return any((v) => kb > parseFloat(v)); }
+            if (type === 'sizeLessThan') { const kb = (m.size || 0) / 1024; return any((v) => kb < parseFloat(v)); }
+            if (type === 'receivedAfter') { const d = new Date(m.receivedDateTime); return any((v) => d > new Date(v)); }
+            if (type === 'receivedBefore') { const d = new Date(m.receivedDateTime); return any((v) => d < new Date(v)); }
+            if (type === 'categoryIs') { const cats = (m.categories || []).map((c) => c.toLowerCase()); return any((v) => cats.includes(v.toLowerCase())); }
+            if (type === 'headerContains') { const h = (m.internetMessageHeaders || []).map((x) => `${x.name}: ${x.value}`).join('\n').toLowerCase(); return any((v) => h.includes(v.toLowerCase())); }
             return false;
           });
         });
@@ -160,6 +171,8 @@ export function useLiveSync({ account, accountIdx, currentFolderId, allFolders, 
         }
       })
     );
+
+    onRuleActionsAppliedRef.current?.();
   }, [account, accountIdx, isInbox]);
 
   const checkNewMessages = useCallback(async () => {

@@ -21,7 +21,21 @@ function getRulesKey(email?: string | null): string {
 export function loadLocalConsoleRules(email?: string | null): LocalConsoleRule[] {
   try {
     const key = getRulesKey(email);
-    return JSON.parse(localStorage.getItem(key) || '[]');
+    let raw = localStorage.getItem(key);
+
+    // Auto-migrate the legacy global key onto the per-account key the first
+    // time this account has no rules of its own yet (mirrors
+    // loadLocalConsoleRules() at New-mailbox.html:11660-11683).
+    if (!raw && email) {
+      const oldRaw = localStorage.getItem(STORAGE_KEYS.LOCAL_CONSOLE_RULES);
+      if (oldRaw) {
+        raw = oldRaw;
+        localStorage.setItem(key, raw);
+      }
+    }
+
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }

@@ -36,6 +36,8 @@ interface SyncStatusIndicatorProps {
   onNewMessages: (msgs: Message[]) => void;
   /** Fired once when the initial seed fetch succeeds — see useLiveSync's onFirstSync doc comment. */
   onFirstSync?: () => void;
+  /** Fired once a batch of local rule actions has finished running — see useLiveSync's onRuleActionsApplied doc comment. */
+  onRuleActionsApplied?: () => void;
 }
 
 /** "Synced now" right after a tick, then a live per-second count-up of seconds since. */
@@ -47,7 +49,7 @@ function getSyncLabel(syncState: 'checking' | 'synced' | 'error', lastSyncedAt: 
   return `Last synced ${elapsedSecs}s ago`;
 }
 
-export function SyncStatusIndicator({ account, accountIdx, currentFolderId, allFolders, isActive, onNewMessages, onFirstSync }: SyncStatusIndicatorProps) {
+export function SyncStatusIndicator({ account, accountIdx, currentFolderId, allFolders, isActive, onNewMessages, onFirstSync, onRuleActionsApplied }: SyncStatusIndicatorProps) {
   const [syncState, setSyncState] = useState<'checking' | 'synced' | 'error'>('synced');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -67,6 +69,7 @@ export function SyncStatusIndicator({ account, accountIdx, currentFolderId, allF
     enabled: isActive,
     onNewMessages,
     onFirstSync,
+    onRuleActionsApplied,
     onSyncTick: (state) => {
       setSyncState(state);
       if (state === 'synced') setLastSyncedAt(new Date());

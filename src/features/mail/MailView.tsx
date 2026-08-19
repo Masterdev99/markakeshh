@@ -546,6 +546,17 @@ export function MailView({ isActive }: MailViewProps) {
                   // not only once new mail happens to arrive later.
                   queryClient.invalidateQueries({ queryKey: ['folders', account?.id] });
                 }}
+                onRuleActionsApplied={() => {
+                  // Mirrors New-mailbox.html's applyLocalRuleActions(), which
+                  // unconditionally calls renderMessages()/updateMessageCount()/
+                  // loadAllFolders() once it finishes running rule actions (lines
+                  // 13168-13170). Without this, a rule that moves/deletes/marks a
+                  // message as read completes correctly on the server but the
+                  // message list and folder counts never refresh to show it —
+                  // the rule appears to silently do nothing.
+                  queryClient.invalidateQueries({ queryKey: ['messages', account?.id, currentFolderId] });
+                  queryClient.invalidateQueries({ queryKey: ['folders', account?.id] });
+                }}
               />
             </div>
 
