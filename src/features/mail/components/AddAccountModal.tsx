@@ -154,17 +154,17 @@ export function AddAccountModal({ onClose }: AddAccountModalProps) {
             <textarea
               className="form-input form-textarea"
               id="inputToken"
-              placeholder="Paste an access token, a refresh token, or the JSON file from Settings → Download tokens"
+              placeholder="Paste an access token, a refresh token, both together, or the JSON file from Settings → Download tokens"
               value={tokenInput}
               onChange={(e) => setTokenInput(e.target.value)}
             />
             <div className="form-hint">
               {!tokenInput.trim()
-                ? 'Auto-detected — works with a raw access token, a raw refresh token, or the JSON file from Settings → Download tokens.'
+                ? 'Auto-detected — works with a raw access token, a raw refresh token, both pasted together, or the JSON file from Settings → Download tokens.'
                 : parsed.accessToken && parsed.refreshToken
                   ? 'Detected access token + refresh token — either button below will work.'
                   : parsed.accessToken
-                    ? 'Detected an access token only — use "Add Account". Paste a refresh token (or a token JSON) instead to enable auto-refresh.'
+                    ? 'Detected an access token only — use "Add Account". Paste a refresh token too (anywhere in this box) to enable auto-refresh.'
                     : parsed.refreshToken
                       ? 'Detected a refresh token only — use "Add with refresh only".'
                       : "Couldn't detect a token in this — check it's a valid access token, refresh token, or JSON file."}
