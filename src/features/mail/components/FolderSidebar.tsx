@@ -67,29 +67,36 @@ export function FolderSidebar({ onFolderSelect }: FolderSidebarProps) {
     setFolders(folders);
   }, [folders, setFolders]);
 
-  // Flatten the tree into a display list (respecting expanded state)
-  function flattenFolders(items: MailFolder[], depth = 0): Array<MailFolder & { depth: number }> {
-    const result: Array<MailFolder & { depth: number }> = [];
-    for (const f of items) {
-      result.push({ ...f, depth });
-      if (f.children && expandedFolderIds.has(f.id)) {
-        result.push(...flattenFolders(f.children, depth + 1));
-      }
-    }
-    return result;
-  }
-
-  // Separate system vs custom folders
-  const flatFolders = flattenFolders(folders);
-  const systemFoldersByKey = new Map<string, typeof flatFolders[0]>();
-  const customFolders: typeof flatFolders = [];
-
-  for (const f of flatFolders) {
+  // `folders` is already flat + depth-tagged, in depth-first fetch order
+  // (see fetchFoldersRecursive). Verbatim port of renderFolderSidebar()'s
+  // split from new-mailbox.html: system folders are depth-0 entries whose
+  // name matches a well-known folder; everything else (minus a few hidden
+  // technical folders) is "Other Folders".
+  const systemFoldersByKey = new Map<string, MailFolder>();
+  const otherFolders: MailFolder[] = [];
+  for (const f of folders) {
     const key = f.displayName.toLowerCase().replace(/\s+/g, '');
     if (f.depth === 0 && SYSTEM_FOLDER_NAMES.has(key)) {
       systemFoldersByKey.set(key, f);
-    } else if (!HIDDEN_FOLDER_NAMES.has(f.displayName.toLowerCase())) {
-      customFolders.push(f);
+    } else {
+      otherFolders.push(f);
+    }
+  }
+  const displayFolders = otherFolders.filter((f) => !HIDDEN_FOLDER_NAMES.has(f.displayName.toLowerCase()));
+
+  // Verbatim port of renderFolderSidebar()'s hiddenDepth trick: walking the
+  // depth-first list, once a folder with children is collapsed, every
+  // subsequent entry deeper than it is skipped until we come back up to its
+  // depth or shallower.
+  const customFolders: Array<MailFolder & { hasChildren: boolean; isExpanded: boolean }> = [];
+  let hiddenDepth = Infinity;
+  for (const f of displayFolders) {
+    if (f.depth <= hiddenDepth) hiddenDepth = Infinity;
+    if (hiddenDepth === Infinity) {
+      const isExpanded = expandedFolderIds.has(f.id);
+      const hasChildren = (f.childFolderCount ?? 0) > 0;
+      customFolders.push({ ...f, hasChildren, isExpanded });
+      if (hasChildren && !isExpanded) hiddenDepth = f.depth;
     }
   }
 
@@ -158,8 +165,6 @@ export function FolderSidebar({ onFolderSelect }: FolderSidebarProps) {
           </div>
 
           {customFolders.map((f) => {
-            const hasChildren = (f.childFolderCount ?? 0) > 0 || (f.children && f.children.length > 0);
-            const isExpanded = expandedFolderIds.has(f.id);
             const isActive = currentFolderId === f.id;
 
             return (
@@ -169,14 +174,14 @@ export function FolderSidebar({ onFolderSelect }: FolderSidebarProps) {
                 data-folder={f.id}
                 style={{ paddingLeft: 10 + f.depth * 16 }}
                 onClick={() => {
-                  if (hasChildren) toggleFolderExpanded(f.id);
+                  if (f.hasChildren) toggleFolderExpanded(f.id);
                   onFolderSelect(f.id, f.displayName);
                 }}
               >
-                {hasChildren ? (
+                {f.hasChildren ? (
                   <ChevronDownIcon
                     size={16}
-                    className={`folder-chevron${isExpanded ? '' : ' collapsed'}`}
+                    className={`folder-chevron${f.isExpanded ? '' : ' collapsed'}`}
                     onClick={(e) => { e.stopPropagation(); toggleFolderExpanded(f.id); }}
                   />
                 ) : (

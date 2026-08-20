@@ -3,7 +3,7 @@
  * Orchestrates data loading, bulk actions, live sync, and panel resizing.
  */
 
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import type { ChangeEvent } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAccountsStore } from '../../store/accounts';
@@ -15,7 +15,9 @@ import { MessageList } from './components/MessageList';
 import { ReadingPane } from './components/ReadingPane';
 import { SyncStatusIndicator, ToolbarActionStatus } from './components/SyncStatusIndicator';
 import { useActionStatusStore } from '../../store/actionStatus';
-import { fetchMessages, markMessageRead, deleteMessage, permanentDeleteMessage, moveMessage, flagMessage, searchMessages, searchMessagesInFolder, sweepSenderMessages } from '../../services/graph/messages';
+import { fetchMessages, markMessageRead, deleteMessage, permanentDeleteMessage, moveMessage, flagMessage, searchMessages, searchMessagesInFolder, sweepSenderMessages, folderPath } from '../../services/graph/messages';
+import { fetchFoldersRecursive } from '../../services/graph/folders';
+import { graphApi } from '../../services/graph/client';
 import { mapWithConcurrency } from '../../utils/concurrency';
 
 /** Caps simultaneous requests for multi-message toolbar actions (mark read/delete/move) so selecting hundreds of messages can't fire them all at once. */
@@ -33,21 +35,12 @@ import {
 } from '../../components/icons';
 import { MailboxSwitcher } from './components/MailboxSwitcher';
 import { usePanelResize } from '../../hooks/usePanelResize';
-import type { Message, MailFolder } from '../../types';
+import type { Message } from '../../types';
 import './mail.css';
 import '../compose/compose.css';
 
 interface MailViewProps {
   isActive: boolean;
-}
-
-function flattenFolders(items: MailFolder[]): Array<{ id: string; displayName: string }> {
-  const out: Array<{ id: string; displayName: string }> = [];
-  for (const f of items) {
-    out.push({ id: f.id, displayName: f.displayName });
-    if (f.children) out.push(...flattenFolders(f.children));
-  }
-  return out;
 }
 
 const SYSTEM_FOLDER_LABELS: Record<string, string> = {
@@ -61,18 +54,6 @@ function getFolderDisplayName(folderId: string, allFolders: Array<{ id: string; 
   return allFolders.find((f) => f.id === folderId)?.displayName ?? 'Current Folder';
 }
 
-/** Finds a folder node (possibly nested) by id and returns its id plus every descendant id — used for "subfolders" search scope. */
-function findFolderSubtreeIds(items: MailFolder[], targetId: string): string[] | null {
-  for (const f of items) {
-    if (f.id === targetId) return [f.id, ...flattenFolders(f.children ?? []).map((x) => x.id)];
-    if (f.children) {
-      const found = findFolderSubtreeIds(f.children, targetId);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
 export function MailView({ isActive }: MailViewProps) {
   const { accounts, currentAccountIdx, setAccounts } = useAccountsStore();
   const { currentFolderId, setCurrentFolder, folders } = useFoldersStore();
@@ -83,12 +64,9 @@ export function MailView({ isActive }: MailViewProps) {
   const account = currentAccountIdx >= 0 ? accounts[currentAccountIdx] : null;
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [folderName, setFolderName] = useState('Inbox');
-  // Memoized so it's a stable reference across renders that don't touch
-  // `folders` — it flows into useLiveSync (via SyncStatusIndicator), which
-  // already reads it through a ref rather than a dependency, but a stable
-  // array here means that ref only ever needs updating when the folder tree
-  // actually changed, not on every unrelated MailView render.
-  const allFolders = useMemo(() => flattenFolders(folders), [folders]);
+  // `folders` (from the store) is already the flat, depth-tagged array
+  // fetchFoldersRecursive produces — no flattening needed.
+  const allFolders = folders;
   const [showCompose, setShowCompose] = useState(false);
   const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward' | null>(null);
 
@@ -139,21 +117,41 @@ export function MailView({ isActive }: MailViewProps) {
   const folderNextLink = data?.pages[data.pages.length - 1]?.['@odata.nextLink'] ?? null;
 
   // Search — scope-aware (all folders / current folder / subfolders / a specific folder),
-  // ported from searchMail() in New-mailbox.html.
+  // a verbatim port of searchMail() from new-mailbox.html (lines 17232–17367).
+  //
+  // The previous version's queryKey omitted currentFolderId, so a "Current
+  // folder"/"Subfolders" scoped search stayed cached under the same key when
+  // the user then clicked to a *different* folder in the sidebar — the
+  // header's scope label recomputed against the new folder, but the actual
+  // result rows kept showing whatever the old folder's search had returned,
+  // i.e. results from one folder mislabeled as belonging to another. Two
+  // fixes, both taken directly from the reference: currentFolderId is now
+  // part of the key so a folder change re-runs the query, and selecting a
+  // folder exits search mode outright (loadFolderById() does `isSearchActive
+  // = false`), matching what every folder click already does in the original.
   const search = useSearchStore();
   const searchQuery = useQuery({
-    queryKey: ['search', account?.id, search.query, search.scope],
+    queryKey: ['search', account?.id, search.query, search.scope, currentFolderId],
     queryFn: async () => {
       if (!account) return [] as Message[];
-      const folderNameMap = new Map(allFolders.map((f) => [f.id, f.displayName]));
       let results: Message[];
+      let folderMap: Map<string, string> | null = null;
 
       if (search.scope.type === 'current') {
         results = (await searchMessagesInFolder(currentFolderId, search.query, account.accessToken, currentAccountIdx)).value ?? [];
       } else if (search.scope.type === 'folder' && search.scope.folderId) {
         results = (await searchMessagesInFolder(search.scope.folderId, search.query, account.accessToken, currentAccountIdx)).value ?? [];
       } else if (search.scope.type === 'subfolders') {
-        const ids = findFolderSubtreeIds(folders, currentFolderId) ?? [currentFolderId];
+        // Well-known folder names (e.g. "inbox") aren't Graph folder IDs —
+        // resolve the real ID first so fetchFoldersRecursive can walk children.
+        let rootId = currentFolderId;
+        const wellKnownPath = folderPath(currentFolderId);
+        if (wellKnownPath !== currentFolderId) {
+          const rootRes = await graphApi(`/me/mailFolders/${wellKnownPath}?$select=id`, account.accessToken, 'GET', null, 3, currentAccountIdx) as { id: string };
+          rootId = rootRes.id;
+        }
+        const subfolders = await fetchFoldersRecursive(account.accessToken, currentAccountIdx, rootId);
+        const ids = [rootId, ...subfolders.map((f) => f.id)];
         const perFolder = await Promise.all(
           ids.map((id) => searchMessagesInFolder(id, search.query, account.accessToken, currentAccountIdx).then((r) => r.value ?? []).catch(() => []))
         );
@@ -164,9 +162,14 @@ export function MailView({ isActive }: MailViewProps) {
         results = (await searchMessages(search.query, account.accessToken, currentAccountIdx)).value ?? [];
       }
 
-      // Folder-name badges only make sense when results can span multiple folders.
+      // Folder-name badges only make sense when results can span multiple
+      // folders — fetch a fresh id->displayName map for that case, same as
+      // searchMail()'s own /me/mailFolders call rather than reusing whatever
+      // happens to be in the sidebar's folder store.
       if (search.scope.type === 'all' || search.scope.type === 'subfolders') {
-        results = results.map((m) => (m.parentFolderId && folderNameMap.has(m.parentFolderId)) ? { ...m, folderName: folderNameMap.get(m.parentFolderId) } : m);
+        const folderRes = await graphApi('/me/mailFolders?$top=100', account.accessToken, 'GET', null, 3, currentAccountIdx) as { value: Array<{ id: string; displayName: string }> };
+        folderMap = new Map((folderRes.value ?? []).map((f) => [f.id, f.displayName]));
+        results = results.map((m) => (m.parentFolderId && folderMap!.has(m.parentFolderId)) ? { ...m, folderName: folderMap!.get(m.parentFolderId) } : m);
       }
       return results;
     },
@@ -229,6 +232,11 @@ export function MailView({ isActive }: MailViewProps) {
   // ==================== ACTIONS ====================
 
   function handleFolderSelect(folderId: string, name: string) {
+    // Mirrors loadFolderById() in new-mailbox.html: picking a folder always
+    // exits search mode. Without this, a "Current folder"/"Subfolders"
+    // scoped search stayed active while browsing to a different folder,
+    // showing the old folder's results under the new folder's label.
+    search.exitSearch();
     setCurrentFolder(folderId);
     setFolderName(name);
     setSelectedMessageId(null);

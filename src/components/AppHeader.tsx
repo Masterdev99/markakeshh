@@ -13,16 +13,6 @@ import { useSearchStore } from '../store/search';
 import { useToast } from '../app/providers/ToastProvider';
 import { getInitials, getAvatarColor } from '../utils/avatar';
 import { AppsIcon, SearchIcon, ArrowLeftIcon, SettingsIcon, ChevronDownIcon, ChevronRightIcon, MailIcon } from './icons';
-import type { MailFolder } from '../types';
-
-function flattenWithDepth(items: MailFolder[], depth = 0): Array<{ folder: MailFolder; depth: number }> {
-  const out: Array<{ folder: MailFolder; depth: number }> = [];
-  for (const f of items) {
-    out.push({ folder: f, depth });
-    if (f.children) out.push(...flattenWithDepth(f.children, depth + 1));
-  }
-  return out;
-}
 
 interface AppHeaderProps {
   currentApp: AppId;
@@ -99,7 +89,8 @@ export function AppHeader({ currentApp, onSwitchApp }: AppHeaderProps) {
   }
 
   const scopeLabel = search.scope.folderName || SCOPE_LABELS[search.scope.type] || 'All folders';
-  const flatFolders = flattenWithDepth(folders);
+  // `folders` is already the flat, depth-tagged array fetchFoldersRecursive
+  // produces, in depth-first order — no flattening needed.
 
   const APP_NAMES: Record<string, string> = {
     mail: 'Outlook', calendar: 'Calendar', onedrive: 'OneDrive',
@@ -170,13 +161,13 @@ export function AppHeader({ currentApp, onSwitchApp }: AppHeaderProps) {
                 <ChevronRightIcon size={14} className="scope-chevron-right" />
                 {favoritesOpen && (
                   <div className="search-scope-submenu">
-                    {flatFolders.length === 0 ? (
+                    {folders.length === 0 ? (
                       <div className="search-scope-item" style={{ color: 'var(--text-muted)', cursor: 'default' }}>No folders loaded</div>
-                    ) : flatFolders.map(({ folder, depth }) => (
+                    ) : folders.map((folder) => (
                       <div
                         key={folder.id}
                         className="search-scope-item"
-                        style={{ paddingLeft: 14 + depth * 14 }}
+                        style={{ paddingLeft: 14 + folder.depth * 14 }}
                         onClick={(e) => { e.stopPropagation(); pickScope('folder', folder.id, folder.displayName); }}
                       >{folder.displayName}</div>
                     ))}

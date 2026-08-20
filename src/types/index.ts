@@ -17,16 +17,16 @@ export interface Account {
 }
 
 // ==================== FOLDER ====================
+// Flat model — a folder tree is a flat array where each entry carries its
+// own nesting `depth`, exactly as new-mailbox.html's fetchFoldersRecursive
+// produces it (a depth-first walk, not a nested children[] tree).
 export interface MailFolder {
   id: string;
   displayName: string;
   unreadItemCount: number;
   totalItemCount: number;
   childFolderCount?: number;
-  parentFolderId?: string;
-  isHidden?: boolean;
-  children?: MailFolder[];
-  isExpanded?: boolean;
+  depth: number;
 }
 
 // ==================== MESSAGE ====================

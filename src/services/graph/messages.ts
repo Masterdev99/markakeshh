@@ -23,7 +23,7 @@ const WELL_KNOWN_FOLDERS: Record<string, string> = {
   outbox: 'Outbox',
 };
 
-function folderPath(folder: string): string {
+export function folderPath(folder: string): string {
   return WELL_KNOWN_FOLDERS[folder.toLowerCase()] ?? folder;
 }
 
