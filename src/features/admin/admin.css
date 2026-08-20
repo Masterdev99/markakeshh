@@ -107,7 +107,7 @@
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 10px;
-  background: #dff6dd;
-  color: #107c10;
+  background: var(--success-light);
+  color: var(--success);
 }
-.admin-status-badge.disabled { background: #fde7e9; color: #a4262c; }
+.admin-status-badge.disabled { background: var(--error-light); color: var(--error); }

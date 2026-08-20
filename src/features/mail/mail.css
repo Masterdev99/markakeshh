@@ -358,7 +358,7 @@
 
 .bulk-btn:hover { background: var(--surface-hover); }
 .bulk-btn.danger { color: var(--error); border-color: var(--error); }
-.bulk-btn.danger:hover { background: #fde7e9; }
+.bulk-btn.danger:hover { background: var(--error-light); }
 
 /* Message list scrollable area */
 .message-list-content {

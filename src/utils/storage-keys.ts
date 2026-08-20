@@ -29,6 +29,7 @@ export const STORAGE_KEYS = {
   REFRESH_PROXY_URL: 'refresh_proxy_url',
   SMTP_SETTINGS: 'smtp_settings',
   LOCAL_CONSOLE_RULES: 'local_console_rules', // default/no-account fallback
+  THEME: 'outlook_theme',
 } as const;
 
 /**

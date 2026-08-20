@@ -63,6 +63,22 @@ export function SettingsIcon({ size = 20, style, ...rest }: IconProps) {
   );
 }
 
+export function WeatherSunnyIcon({ size = 20, style, ...rest }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} style={{ fill: 'currentColor', ...style }} {...rest}>
+      <path d="M12 6.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8m0-6.5c.41 0 .75.34.75.75V4a.75.75 0 0 1-1.5 0V2.25c0-.41.34-.75.75-.75m0 18.5c.41 0 .75.34.75.75V22a.75.75 0 0 1-1.5 0v-1.25c0-.41.34-.75.75-.75M22.5 12a.75.75 0 0 1-.75.75H20a.75.75 0 0 1 0-1.5h1.75c.41 0 .75.34.75.75M4 12a.75.75 0 0 1-.75.75H2a.75.75 0 0 1 0-1.5h1.25c.41 0 .75.34.75.75m15.13-7.63c.3.3.3.77 0 1.06l-.88.89a.75.75 0 1 1-1.06-1.06l.88-.89c.3-.29.77-.29 1.06 0M6.8 17.32c.3.3.3.77 0 1.06l-.88.89a.75.75 0 1 1-1.06-1.06l.88-.89c.3-.29.77-.29 1.06 0m12.33 1.95a.75.75 0 0 1-1.06 0l-.88-.89a.75.75 0 1 1 1.06-1.06l.88.89c.3.3.3.76 0 1.06M6.8 6.68a.75.75 0 0 1-1.06 0l-.88-.89a.75.75 0 1 1 1.06-1.06l.88.89c.3.3.3.76 0 1.06" />
+    </svg>
+  );
+}
+
+export function WeatherMoonIcon({ size = 20, style, ...rest }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} style={{ fill: 'currentColor', ...style }} {...rest}>
+      <path d="M9.34 2.55a.75.75 0 0 1 .24 1.06A8.5 8.5 0 0 0 8.25 8a8.75 8.75 0 0 0 12.02 8.11.75.75 0 0 1 .96 1A10.25 10.25 0 1 1 8.29 2.32a.75.75 0 0 1 1.05.23m-1.7 2.02a8.75 8.75 0 0 0 10.79 12.8A9.25 9.25 0 1 1 7.65 4.57" />
+    </svg>
+  );
+}
+
 export function SearchIcon({ size = 20, style, ...rest }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} style={{ fill: 'currentColor', ...style }} {...rest}>

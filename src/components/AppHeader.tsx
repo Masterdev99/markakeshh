@@ -10,9 +10,10 @@ import { SettingsMenu } from './SettingsMenu';
 import { useAccountsStore } from '../store/accounts';
 import { useFoldersStore } from '../store/folders';
 import { useSearchStore } from '../store/search';
+import { useThemeStore } from '../store/theme';
 import { useToast } from '../app/providers/ToastProvider';
 import { getInitials, getAvatarColor } from '../utils/avatar';
-import { AppsIcon, SearchIcon, ArrowLeftIcon, SettingsIcon, ChevronDownIcon, ChevronRightIcon, MailIcon } from './icons';
+import { AppsIcon, SearchIcon, ArrowLeftIcon, SettingsIcon, ChevronDownIcon, ChevronRightIcon, MailIcon, WeatherSunnyIcon, WeatherMoonIcon } from './icons';
 
 interface AppHeaderProps {
   currentApp: AppId;
@@ -33,6 +34,7 @@ export function AppHeader({ currentApp, onSwitchApp }: AppHeaderProps) {
   const { accounts, currentAccountIdx, isAdmin } = useAccountsStore();
   const { folders } = useFoldersStore();
   const search = useSearchStore();
+  const { theme, toggleTheme } = useThemeStore();
   const { toast } = useToast();
   const account = currentAccountIdx >= 0 ? accounts[currentAccountIdx] : null;
 
@@ -200,6 +202,16 @@ export function AppHeader({ currentApp, onSwitchApp }: AppHeaderProps) {
 
       {/* Right actions */}
       <div className="header-actions">
+        <button
+          className="header-btn"
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          id="themeToggleBtn"
+          onClick={toggleTheme}
+        >
+          {theme === 'dark' ? <WeatherSunnyIcon size={19} /> : <WeatherMoonIcon size={19} />}
+        </button>
+
         <div style={{ position: 'relative' }}>
           <button
             className={`header-btn${settingsOpen ? ' active' : ''}`}
