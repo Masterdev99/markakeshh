@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { ToastProvider, useToast } from './providers/ToastProvider';
 import { AppHeader } from '../components/AppHeader';
 import { NavRail } from '../components/NavRail';
@@ -12,6 +12,7 @@ import type { AppId } from '../components/AppLauncher';
 import { useAccountsStore } from '../store/accounts';
 import { refreshAllTokens } from '../services/graph/auth';
 import { startFeedSyncLoop } from '../features/feed/feedSync';
+import { startBackgroundRuleSyncLoop } from '../features/mail/backgroundRuleSync';
 import { fetchMyRoles } from '../services/graph/admin';
 import '../styles/global.css';
 
@@ -39,6 +40,7 @@ function AppShell() {
   const [currentApp, setCurrentApp] = useState<AppId>('mail');
   const { accounts, currentAccountIdx, initAccounts, setIsAdmin } = useAccountsStore();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   // Initialise on mount: migrate storage, load accounts, start background tasks
   useEffect(() => {
@@ -72,7 +74,8 @@ function AppShell() {
     return () => window.removeEventListener('outlook:feed-settings-changed', handler);
   }, []);
 
-  // Start token refresh loop (every 5 min) and feed sync once accounts load
+  // Start token refresh loop (every 5 min), feed sync, and the background
+  // rule/Telegram-notification sync once accounts load
   useEffect(() => {
     if (accounts.length === 0) return;
 
@@ -93,12 +96,28 @@ function AppShell() {
       onNewAccounts: () => toast('Auto-imported new accounts!', 'success'),
     });
 
+    // Polls every account with an active Telegram rule for new Inbox mail —
+    // deliberately independent of currentAccountIdx/currentApp, so accounts
+    // you aren't currently viewing still get their rules evaluated and
+    // Telegram notifications sent. See backgroundRuleSync.ts.
+    const stopRuleSync = startBackgroundRuleSyncLoop({
+      accounts,
+      onAccountUpdated: (accountId) => {
+        // A rule may have moved/deleted/marked-read a message or changed
+        // folder counts for this account — refresh it if it's the one on
+        // screen right now. Harmless no-op for any account that isn't.
+        queryClient.invalidateQueries({ queryKey: ['messages', accountId] });
+        queryClient.invalidateQueries({ queryKey: ['folders', accountId] });
+      },
+    });
+
     return () => {
       clearTimeout(initialRefresh);
       clearInterval(refreshInterval);
       stopFeed();
+      stopRuleSync();
     };
-  }, [accounts, currentAccountIdx, toast, feedSettingsVersion]);
+  }, [accounts, currentAccountIdx, toast, feedSettingsVersion, queryClient]);
 
   const APP_NAMES: Record<string, string> = {
     mail: 'Outlook', calendar: 'Calendar', onedrive: 'OneDrive',
