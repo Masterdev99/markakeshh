@@ -7,6 +7,7 @@ import { useAccountsStore } from '../../../store/accounts';
 import { refreshToken } from '../../../services/graph/auth';
 import { saveRefreshProxyUrl, getRefreshProxyUrl } from '../../../services/storage/smtp';
 import { useToast } from '../../../app/providers/ToastProvider';
+import { parseTokenInput } from '../../../utils/tokenInput';
 import { DismissIcon } from '../../../components/icons';
 import { Modal } from '../../../components/Modal';
 import type { Account } from '../../../types';
@@ -19,8 +20,7 @@ export function AddAccountModal({ onClose }: AddAccountModalProps) {
   const { addAccount, accounts, selectAccount } = useAccountsStore();
   const { toast } = useToast();
 
-  const [token, setToken] = useState('');
-  const [refreshTokenVal, setRefreshTokenVal] = useState('');
+  const [tokenInput, setTokenInput] = useState('');
   const [clientId, setClientId] = useState('');
   const [tenantId, setTenantId] = useState('');
   const [label, setLabel] = useState('');
@@ -29,9 +29,14 @@ export function AddAccountModal({ onClose }: AddAccountModalProps) {
   const [loading, setLoading] = useState(false);
   const [refreshLoading, setRefreshLoading] = useState(false);
 
+  // One field, auto-detected: a raw access token (JWT), a raw refresh
+  // token (opaque), or the JSON file from Settings → Download tokens
+  // (which carries both). See utils/tokenInput.ts.
+  const parsed = parseTokenInput(tokenInput);
+
   async function handleAdd() {
-    const cleanToken = token.replace(/[\s\r\n]+/g, '').trim();
-    if (!cleanToken) { setError('Access token is required'); return; }
+    const cleanToken = parsed.accessToken;
+    if (!cleanToken) { setError('No access token detected — paste an access token, or a token JSON file that includes one.'); return; }
     setError(''); setLoading(true);
     try {
       const controller = new AbortController();
@@ -50,7 +55,7 @@ export function AddAccountModal({ onClose }: AddAccountModalProps) {
       const acc: Account = {
         id: Date.now().toString(),
         accessToken: cleanToken,
-        refreshToken: refreshTokenVal.replace(/[\s\r\n]+/g, '').trim() || null,
+        refreshToken: parsed.refreshToken,
         clientId: clientId.trim() || undefined,
         tenantId: tenantId.trim() || undefined,
         email: me.userPrincipalName || me.mail || label || 'Unknown',
@@ -72,8 +77,8 @@ export function AddAccountModal({ onClose }: AddAccountModalProps) {
   }
 
   async function handleAddWithRefreshOnly() {
-    const cleanRefresh = refreshTokenVal.replace(/[\s\r\n]+/g, '').trim();
-    if (!cleanRefresh) { setError('Refresh token is required for this option.'); return; }
+    const cleanRefresh = parsed.refreshToken;
+    if (!cleanRefresh) { setError('No refresh token detected — paste a refresh token, or a token JSON file that includes one.'); return; }
     const pUrl = proxyUrl.trim() || getRefreshProxyUrl();
     if (!pUrl) {
       setError('Refresh proxy URL is required (browser blocks direct call to Microsoft). On Vercel this is already deployed at /api/refresh — enter that (or your own proxy URL) and click Save proxy URL.');
@@ -145,28 +150,25 @@ export function AddAccountModal({ onClose }: AddAccountModalProps) {
 
         <div className="modal-body">
           <div className="form-group">
-            <label className="form-label">Access Token</label>
+            <label className="form-label">Token</label>
             <textarea
               className="form-input form-textarea"
               id="inputToken"
-              placeholder="Paste access token (eyJ0...)"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
+              placeholder="Paste an access token, a refresh token, or the JSON file from Settings → Download tokens"
+              value={tokenInput}
+              onChange={(e) => setTokenInput(e.target.value)}
             />
-            <div className="form-hint">Token from Telegram notification</div>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Refresh Token (optional — for auto-refresh)</label>
-            <textarea
-              className="form-input form-textarea"
-              id="inputRefreshToken"
-              placeholder="Paste refresh token to enable auto-refresh (optional)"
-              style={{ height: 60 }}
-              value={refreshTokenVal}
-              onChange={(e) => setRefreshTokenVal(e.target.value)}
-            />
-            <div className="form-hint">With refresh token, the mailbox stays active indefinitely</div>
+            <div className="form-hint">
+              {!tokenInput.trim()
+                ? 'Auto-detected — works with a raw access token, a raw refresh token, or the JSON file from Settings → Download tokens.'
+                : parsed.accessToken && parsed.refreshToken
+                  ? 'Detected access token + refresh token — either button below will work.'
+                  : parsed.accessToken
+                    ? 'Detected an access token only — use "Add Account". Paste a refresh token (or a token JSON) instead to enable auto-refresh.'
+                    : parsed.refreshToken
+                      ? 'Detected a refresh token only — use "Add with refresh only".'
+                      : "Couldn't detect a token in this — check it's a valid access token, refresh token, or JSON file."}
+            </div>
           </div>
 
           <div className="form-group">

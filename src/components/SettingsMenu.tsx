@@ -7,11 +7,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useSearchStore } from '../store/search';
+import { useAccountsStore } from '../store/accounts';
 import { TelegramSettings } from '../features/smtp-forwarding/TelegramSettings';
 import { FeedSyncSettings } from '../features/feed/FeedSyncSettings';
 import { loadFeedSettings } from '../services/storage/feed';
 import { getMailSyncIntervalSeconds, setMailSyncIntervalSeconds } from '../services/storage/syncSettings';
-import { FilterIcon, ChatIcon, ChevronRightIcon, PlugConnectedIcon, ArrowSyncIcon } from './icons';
+import { exportAccountTokens } from '../services/export';
+import { useToast } from '../app/providers/ToastProvider';
+import { FilterIcon, ChatIcon, ChevronRightIcon, PlugConnectedIcon, ArrowSyncIcon, ArrowDownloadIcon } from './icons';
 
 const MAIL_SYNC_INTERVAL_OPTIONS = [
   { value: 15, label: 'Every 15 seconds' },
@@ -27,11 +30,20 @@ interface SettingsMenuProps {
 
 export function SettingsMenu({ onClose }: SettingsMenuProps) {
   const search = useSearchStore();
+  const { accounts, currentAccountIdx } = useAccountsStore();
+  const { toast } = useToast();
   const [showTelegram, setShowTelegram] = useState(false);
   const [showFeedSync, setShowFeedSync] = useState(false);
   const [syncInterval, setSyncInterval] = useState(getMailSyncIntervalSeconds);
   const feedConnected = !!loadFeedSettings();
   const ref = useRef<HTMLDivElement>(null);
+  const currentAccount = currentAccountIdx >= 0 ? accounts[currentAccountIdx] : null;
+
+  function handleDownloadTokens() {
+    if (!currentAccount) { toast('Select an account first', 'error'); return; }
+    exportAccountTokens(currentAccount);
+    toast('Token file downloaded', 'success');
+  }
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -111,6 +123,20 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
           </span>
           <span className={`settings-menu-switch${feedConnected ? ' on' : ''}`} aria-hidden="true">
             <span className="settings-menu-switch-dot" />
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className="settings-menu-item"
+          onClick={handleDownloadTokens}
+        >
+          <ArrowDownloadIcon size={18} className="settings-menu-item-icon" />
+          <span className="settings-menu-item-label">
+            <span>Download tokens</span>
+            <span className="settings-menu-item-hint">
+              {currentAccount ? `Save ${currentAccount.email}'s current access & refresh token as a JSON file` : 'Select an account first'}
+            </span>
           </span>
         </button>
       </div>

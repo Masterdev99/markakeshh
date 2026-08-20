@@ -89,6 +89,28 @@ export async function exportFullMailboxAddresses(
   return { addressCount: emailAddresses.length, folderCount: folders.length };
 }
 
+/**
+ * Exports one account's current access token and refresh token as a single
+ * JSON file — meant to be pasted back into Add Account's token field later
+ * (that field auto-detects this exact shape). Distinct from
+ * exportAccountsDatabase below: this is one account, portable, and matches
+ * what Add Account's parser expects; the database export is a full
+ * multi-account backup in its own .m365db format.
+ */
+export function exportAccountTokens(account: Account): void {
+  const exportData = {
+    email: account.email,
+    displayName: account.displayName,
+    accessToken: account.accessToken,
+    refreshToken: account.refreshToken || null,
+    exportedAt: new Date().toISOString(),
+  };
+  downloadJson(
+    `account-tokens_${account.email.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.json`,
+    exportData
+  );
+}
+
 /** Exports the accounts array (tokens + metadata) as a portable .m365db backup file. */
 export function exportAccountsDatabase(accounts: Account[]): void {
   const dbData = {
