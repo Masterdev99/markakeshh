@@ -133,7 +133,11 @@ export async function applyLocalRuleActions(
             ? `${escHtml(mailboxLabel)} (${escHtml(account.email)})`
             : escHtml(account.email);
           const text = [
-            `📧 <b>New email matched a rule</b>${hasAtt}`,
+            // 🖥️ marks this notification as sent by the in-tab browser loop,
+            // as opposed to ☁️ for the headless Cloudflare Worker (see
+            // cloudflare-worker/src/telegram.ts) — lets you tell which one
+            // actually fired when you're away from the device.
+            `📧 <b>New email matched a rule</b> 🖥️${hasAtt}`,
             '',
             `<b>Mailbox:</b> ${mailboxLine}`,
             `<b>From:</b> ${escHtml(fromName)} &lt;${escHtml(fromAddr)}&gt;`,
