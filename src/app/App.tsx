@@ -13,6 +13,7 @@ import { useAccountsStore } from '../store/accounts';
 import { refreshAllTokens } from '../services/graph/auth';
 import { startFeedSyncLoop } from '../features/feed/feedSync';
 import { startBackgroundRuleSyncLoop } from '../features/mail/backgroundRuleSync';
+import { syncToWorkerBestEffort } from '../services/workerSyncClient';
 import { fetchMyRoles } from '../services/graph/admin';
 import '../styles/global.css';
 
@@ -88,6 +89,12 @@ function AppShell() {
     const refreshInterval = setInterval(() => {
       refreshAllTokens(accounts).catch(() => {});
     }, 300_000);
+
+    // Push current accounts/rules/Telegram settings to the optional
+    // Cloudflare background-sync Worker, if configured — best-effort,
+    // silent no-op if unset. Keeps the Worker's copy reasonably fresh
+    // without a dedicated polling loop of its own.
+    syncToWorkerBestEffort();
 
     // Start feed sync if configured
     const stopFeed = startFeedSyncLoop({

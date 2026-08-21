@@ -30,6 +30,8 @@ export const STORAGE_KEYS = {
   SMTP_SETTINGS: 'smtp_settings',
   LOCAL_CONSOLE_RULES: 'local_console_rules', // default/no-account fallback
   THEME: 'outlook_theme',
+  WORKER_SYNC_URL: 'worker_sync_url',
+  WORKER_SYNC_SECRET: 'worker_sync_secret',
 } as const;
 
 /**

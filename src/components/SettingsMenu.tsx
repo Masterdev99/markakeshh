@@ -10,11 +10,13 @@ import { useSearchStore } from '../store/search';
 import { useAccountsStore } from '../store/accounts';
 import { TelegramSettings } from '../features/smtp-forwarding/TelegramSettings';
 import { FeedSyncSettings } from '../features/feed/FeedSyncSettings';
+import { CloudflareWorkerSettings } from '../features/worker-sync/CloudflareWorkerSettings';
 import { loadFeedSettings } from '../services/storage/feed';
 import { getMailSyncIntervalSeconds, setMailSyncIntervalSeconds } from '../services/storage/syncSettings';
+import { getWorkerSyncSecret, getWorkerSyncUrl } from '../services/storage/workerSync';
 import { exportAccountTokens } from '../services/export';
 import { useToast } from '../app/providers/ToastProvider';
-import { FilterIcon, ChatIcon, ChevronRightIcon, PlugConnectedIcon, ArrowSyncIcon, ArrowDownloadIcon } from './icons';
+import { FilterIcon, ChatIcon, ChevronRightIcon, PlugConnectedIcon, ArrowSyncIcon, ArrowDownloadIcon, CloudIcon } from './icons';
 
 const MAIL_SYNC_INTERVAL_OPTIONS = [
   { value: 15, label: 'Every 15 seconds' },
@@ -34,6 +36,8 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
   const { toast } = useToast();
   const [showTelegram, setShowTelegram] = useState(false);
   const [showFeedSync, setShowFeedSync] = useState(false);
+  const [showWorkerSync, setShowWorkerSync] = useState(false);
+  const workerSyncConfigured = !!(getWorkerSyncUrl() && getWorkerSyncSecret());
   const [syncInterval, setSyncInterval] = useState(getMailSyncIntervalSeconds);
   const feedConnected = !!loadFeedSettings();
   const ref = useRef<HTMLDivElement>(null);
@@ -108,6 +112,21 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
           <ChevronRightIcon size={16} className="settings-menu-item-chevron" />
         </button>
 
+        <button
+          type="button"
+          className="settings-menu-item"
+          onClick={() => { setShowWorkerSync(true); }}
+        >
+          <CloudIcon size={18} className="settings-menu-item-icon" />
+          <span className="settings-menu-item-label">
+            <span>Background sync</span>
+            <span className="settings-menu-item-hint">
+              {workerSyncConfigured ? 'Configured — rules & Telegram run even with the tab closed' : 'Keep rules & Telegram running while the browser is closed'}
+            </span>
+          </span>
+          <ChevronRightIcon size={16} className="settings-menu-item-chevron" />
+        </button>
+
         <div className="settings-menu-section-label">Accounts</div>
         <button
           type="button"
@@ -147,6 +166,10 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
 
       {showFeedSync && (
         <FeedSyncSettings onClose={() => { setShowFeedSync(false); onClose(); }} />
+      )}
+
+      {showWorkerSync && (
+        <CloudflareWorkerSettings onClose={() => { setShowWorkerSync(false); onClose(); }} />
       )}
     </>
   );
