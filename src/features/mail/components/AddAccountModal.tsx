@@ -279,7 +279,7 @@ export function AddAccountModal({ onClose }: AddAccountModalProps) {
 						onChange={(e) => setProxyUrl(e.target.value)}
 					/>
 					<div className="form-hint">
-						Enter <code>/api/refresh</code> — and save it for automatic refresh.
+						Enter <code>/api/refresh</code> — and save it for automatic refreshs.
 					</div>
 					<button
 						type="button"
