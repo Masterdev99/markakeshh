@@ -26,11 +26,22 @@ export interface WorkerSyncPayload {
   telegram: ReturnType<typeof getTelegramSettings>;
 }
 
+export interface WorkerAccountCursorStatus {
+  id: string;
+  email: string;
+  cursor: { seeded: boolean; cursorSize: number; lastClaim: { source: 'browser' | 'worker'; claimed: string[]; at: string } | null } | null;
+}
+
 export interface WorkerStatus {
   lastRun: string | null;
   lastError: string | null;
   accountCount: number;
+  accounts?: WorkerAccountCursorStatus[];
 }
+
+export type ClaimResult =
+  | { ok: true; claimed: string[] }
+  | { ok: false; reason: 'not-configured' | 'failed' };
 
 /** Only the fields the Worker needs — deliberately excludes accessToken
  * (short-lived; the Worker mints and caches its own from the refresh token). */
@@ -78,7 +89,49 @@ export async function fetchWorkerStatus(): Promise<WorkerStatus> {
   const resp = await fetch(`${url}/status`, { headers: { Authorization: `Bearer ${secret}` } });
   const data = (await resp.json().catch(() => ({}))) as Partial<WorkerStatus> & { error?: string };
   if (!resp.ok) throw new Error(data.error || `Status check failed (${resp.status})`);
-  return { lastRun: data.lastRun ?? null, lastError: data.lastError ?? null, accountCount: data.accountCount ?? 0 };
+  return { lastRun: data.lastRun ?? null, lastError: data.lastError ?? null, accountCount: data.accountCount ?? 0, accounts: data.accounts };
+}
+
+const CLAIM_RETRY_DELAYS_MS = [200, 500, 1000];
+
+/**
+ * Asks the Worker's AccountCursor Durable Object which of these message IDs
+ * this browser actually gets to act on — the same atomic claim the Worker's
+ * own cron tick uses, so whichever side gets there first wins and the other
+ * silently skips, instead of both firing a rule action for the same message.
+ *
+ * Retries a few times on failure before giving up, since a transient blip is
+ * far more likely than real downtime. If the Worker isn't configured at all,
+ * returns 'not-configured' immediately — that's an expected, silent case,
+ * not a failure. If it's configured but unreachable after retries, returns
+ * 'failed' — the caller should fall back to acting unfiltered (missing a
+ * notification is worse than an occasional duplicate) and surface that this
+ * happened, rather than silently degrading.
+ */
+export async function claimMessageIds(accountId: string, messageIds: string[]): Promise<ClaimResult> {
+  const url = getWorkerSyncUrl();
+  const secret = getWorkerSyncSecret();
+  if (!url || !secret) return { ok: false, reason: 'not-configured' };
+  if (messageIds.length === 0) return { ok: true, claimed: [] };
+
+  const endpoint = `${url.replace(/\/+$/, '')}/claim`;
+  for (let attempt = 0; attempt <= CLAIM_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${secret}` },
+        body: JSON.stringify({ accountId, messageIds }),
+      });
+      if (!resp.ok) throw new Error(`Claim failed (${resp.status})`);
+      const data = (await resp.json()) as { claimed: string[] };
+      return { ok: true, claimed: data.claimed };
+    } catch {
+      if (attempt < CLAIM_RETRY_DELAYS_MS.length) {
+        await new Promise((resolve) => setTimeout(resolve, CLAIM_RETRY_DELAYS_MS[attempt]));
+      }
+    }
+  }
+  return { ok: false, reason: 'failed' };
 }
 
 /** Best-effort sync — used for the fire-and-forget call on app load. Never

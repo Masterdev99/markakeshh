@@ -18,13 +18,24 @@
  * currently viewed AND has a Telegram rule would get matched twice (once by
  * useLiveSync, once by this loop): one message, two Telegram pings, and a
  * move/delete/markAsRead action attempted twice.
+ *
+ * If a Cloudflare background-sync Worker is configured (see
+ * services/workerSyncClient.ts), this loop can *also* race with that
+ * Worker's own cron tick on the same account — both independently polling
+ * Inbox. Before acting on newly-seen messages, it asks the Worker's
+ * AccountCursor Durable Object which of them this browser actually gets to
+ * claim; whichever side (browser or Worker) gets there first wins, the
+ * other silently skips. If the Worker is unreachable, it fails open (acts
+ * anyway — missing a notification is worse than an occasional duplicate)
+ * and reports that once via onDegraded, rather than silently degrading.
  */
 
 import { fetchLatestMessages } from '../../services/graph/messages';
 import { getMailSyncIntervalSeconds } from '../../services/storage/syncSettings';
+import { claimMessageIds } from '../../services/workerSyncClient';
 import { mapWithConcurrency } from '../../utils/concurrency';
 import { hasActiveTelegramRule, applyLocalRuleActions } from './ruleEngine';
-import type { Account } from '../../types';
+import type { Account, Message } from '../../types';
 
 /** Caps simultaneous account polls — this loop can cover several accounts at once, and each poll is its own Graph request, so this keeps a large account list from firing them all in one burst. */
 const MAX_CONCURRENT_BACKGROUND_POLLS = 3;
@@ -43,10 +54,19 @@ interface BackgroundRuleSyncOptions {
   accounts: Account[];
   /** Called after a rule action actually changed something for this account, so the caller can refresh that account's message list / folder counts if it happens to be the one currently on screen. */
   onAccountUpdated: (accountId: string) => void;
+  /** Called (at most once per unreachable stretch — not on every poll tick)
+   * when the background-sync Worker is configured but a claim call failed
+   * after retries, so this loop fell back to acting without cross-checking
+   * it. Lets the caller surface a toast instead of degrading silently. */
+  onDegraded?: () => void;
 }
 
 export function startBackgroundRuleSyncLoop(opts: BackgroundRuleSyncOptions): () => void {
   const state = new Map<string, AccountPollState>();
+  // Tracks whether onDegraded has already fired for the current unreachable
+  // stretch, so a Worker that's down for a while doesn't spam a toast every
+  // poll tick — resets the moment a claim call succeeds again.
+  let hasWarnedDegraded = false;
 
   async function pollAccount(account: Account, accountIdx: number): Promise<void> {
     let s = state.get(account.id);
@@ -76,7 +96,29 @@ export function startBackgroundRuleSyncLoop(opts: BackgroundRuleSyncOptions): ()
       newMsgs.forEach((m) => s!.seenIds.add(m.id));
       if (newMsgs.length === 0) return;
 
-      const applied = await applyLocalRuleActions(account, accountIdx, newMsgs, s.processedIds);
+      // Cross-check with the background-sync Worker (if configured) before
+      // acting, so this loop and the Worker's own cron tick can't both fire
+      // the same rule for the same message. See the file header comment.
+      const claimResult = await claimMessageIds(account.id, newMsgs.map((m) => m.id));
+      let actionable: Message[];
+      if (claimResult.ok) {
+        hasWarnedDegraded = false;
+        const claimedSet = new Set(claimResult.claimed);
+        actionable = newMsgs.filter((m) => claimedSet.has(m.id));
+      } else {
+        // 'not-configured' is expected/silent (no Worker set up at all —
+        // behave exactly as before this feature existed). 'failed' means it
+        // IS configured but unreachable after retries — fail open (act
+        // anyway) and surface it once, rather than silently duplicating.
+        actionable = newMsgs;
+        if (claimResult.reason === 'failed' && !hasWarnedDegraded) {
+          hasWarnedDegraded = true;
+          opts.onDegraded?.();
+        }
+      }
+      if (actionable.length === 0) return;
+
+      const applied = await applyLocalRuleActions(account, accountIdx, actionable, s.processedIds);
       if (applied) opts.onAccountUpdated(account.id);
     } catch {
       // Silently ignore — transient errors (rate limiting, a momentarily

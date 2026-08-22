@@ -116,6 +116,7 @@ function AppShell() {
         queryClient.invalidateQueries({ queryKey: ['messages', accountId] });
         queryClient.invalidateQueries({ queryKey: ['folders', accountId] });
       },
+      onDegraded: () => toast('Background sync Worker unreachable — rules may briefly double-fire until it recovers', 'info'),
     });
 
     return () => {
