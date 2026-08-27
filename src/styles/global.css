@@ -1148,6 +1148,19 @@ body {
   box-shadow: 0 0 0 3px rgba(15, 108, 189, 0.1);
 }
 
+/* Card preview of a saved signature — renders the real signature HTML (images
+   included) so the user can see what "Insert into email" will put in the body. */
+.sig-item-preview {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: left;
+  max-height: 90px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sig-item-preview img { max-width: 100%; height: auto; }
+
 /* Drag handle for free-form image resize in the signature editor — sits
    alongside the S/M/L/Full quick-size presets, not instead of them. */
 .sig-img-resize-handle {

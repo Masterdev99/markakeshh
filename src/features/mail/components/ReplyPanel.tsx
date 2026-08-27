@@ -24,9 +24,10 @@ import type { ChangeEvent } from 'react';
 import { useAccountsStore } from '../../../store/accounts';
 import { loadSignatures } from '../../../services/storage/signatures';
 import { getFromAlias, getReplyTo } from '../../../services/storage/identity';
-import { createReply, createReplyAll, createForward, sendDraftMessage, updateDraftMessage } from '../../../services/graph/messages';
+import { createReply, createReplyAll, createForward, sendDraftMessage, updateDraftMessage, addDraftAttachment } from '../../../services/graph/messages';
 import { escHtml, sanitizeHtml } from '../../../utils/sanitize';
 import { formatFullDate, formatRecipientList, getFileExtension } from '../../../utils/format';
+import { extractInlineImages } from '../../../utils/inline-images';
 import { getAvatarColor } from '../../../utils/avatar';
 import { useToast } from '../../../app/providers/ToastProvider';
 import { SignatureManager } from '../../signatures/SignatureManager';
@@ -261,6 +262,31 @@ export function ReplyPanel({ message, mode, onClose }: ReplyPanelProps) {
 
   const selectedSig = signatures.find((s) => s.name === selectedSigName);
 
+  /**
+   * Renders the chosen signature into the editor itself, in a dedicated block,
+   * so the user SEES exactly what will be sent (it used to be appended only at
+   * send time, invisibly). handleSend therefore takes the editor HTML as-is and
+   * must NOT append the signature again.
+   */
+  function applySignatureToEditor(content: string | null) {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const existing = editor.querySelector('[data-signature-area]') as HTMLElement | null;
+    if (!content) { existing?.remove(); return; }
+    const area = existing ?? editor.appendChild(document.createElement('div'));
+    area.setAttribute('data-signature-area', '1');
+    area.style.marginTop = '12px';
+    area.innerHTML = content;
+  }
+
+  // Keeps the visible signature block in sync with the picker, and re-applies
+  // it after the editor is reset for a new message/mode (that reset effect is
+  // declared above this one, so it always runs first).
+  useEffect(() => {
+    applySignatureToEditor(selectedSig?.content || null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSigName, signatures, message, mode]);
+
   async function handleSend() {
     if (!account) return;
     if (toRecipients.length === 0) {
@@ -279,7 +305,6 @@ export function ReplyPanel({ message, mode, onClose }: ReplyPanelProps) {
       else draft = await createForward(message.id, account.accessToken, currentAccountIdx);
 
       const userHtml = editorRef.current?.innerHTML.trim() ?? '';
-      const sigHtml = selectedSig?.content || '';
       const from = message.from?.emailAddress;
       const quotedHtml =
         `<div style="border-left:1.5px solid #c8c6c4;padding-left:12px;margin:16px 0 0 0;color:#605E5C;font-family:inherit">` +
@@ -292,12 +317,18 @@ export function ReplyPanel({ message, mode, onClose }: ReplyPanelProps) {
         (message.body?.contentType === 'html' ? (message.body?.content || '') : `<pre style="white-space:pre-wrap;font-family:inherit;font-size:13px">${escHtml(message.body?.content || message.bodyPreview || '')}</pre>`) +
         `</div>`;
 
-      const fullHtml =
+      // The signature is already part of `userHtml` — it lives visibly in the
+      // editor (see applySignatureToEditor), so appending it again here would
+      // send it twice.
+      const composedHtml =
         `<div style="font-family:'Segoe UI',Arial,sans-serif;font-size:14px">` +
         userHtml +
-        (sigHtml ? `<div style="margin-top:12px;border-top:1px solid #ccc;padding-top:12px;font-size:12px;color:#666">${sigHtml}</div>` : '') +
         `<br>` + quotedHtml +
         `</div>`;
+
+      // Signature/inline images are `data:` URIs in the editor; Exchange strips
+      // those, so convert them to real inline (cid:) attachments before sending.
+      const { html: fullHtml, attachments: inlineImages } = extractInlineImages(composedHtml);
 
       const payload: Record<string, unknown> = {
         subject,
@@ -306,19 +337,25 @@ export function ReplyPanel({ message, mode, onClose }: ReplyPanelProps) {
       };
       if (ccRecipients.length > 0) payload.ccRecipients = ccRecipients.map((a) => ({ emailAddress: { address: a.trim() } }));
       if (bccRecipients.length > 0) payload.bccRecipients = bccRecipients.map((a) => ({ emailAddress: { address: a.trim() } }));
-      if (attachments.length > 0) {
-        payload.attachments = attachments.map((a) => ({
+      const allAttachments: Record<string, unknown>[] = [
+        ...attachments.map((a) => ({
           '@odata.type': '#microsoft.graph.fileAttachment',
           name: a.name,
           contentType: a.contentType,
           contentBytes: a.contentBytes,
-        }));
-      }
+        })),
+        ...inlineImages,
+      ];
       if (replyToAddr) {
         payload.replyTo = [{ emailAddress: { address: replyToAddr, name: fromAlias || account.displayName || '' } }];
       }
 
       await updateDraftMessage(draft.id, payload, account.accessToken, currentAccountIdx);
+      // Attachments must be POSTed to the draft's own collection — a PATCH that
+      // carries `attachments` is accepted but silently drops them.
+      for (const attachment of allAttachments) {
+        await addDraftAttachment(draft.id, attachment, account.accessToken, currentAccountIdx);
+      }
       await sendDraftMessage(draft.id, account.accessToken, currentAccountIdx);
 
       toast('Message sent', 'success');
@@ -518,7 +555,16 @@ export function ReplyPanel({ message, mode, onClose }: ReplyPanelProps) {
       </div>
 
       {showSigManager && (
-        <SignatureManager onClose={() => { setShowSigManager(false); refreshSignatures(); }} />
+        <SignatureManager
+          onClose={() => { setShowSigManager(false); refreshSignatures(); }}
+          onInsert={(sig) => {
+            setShowSigManager(false);
+            setSignatures(loadSignatures());
+            setSelectedSigName(sig.name);
+            applySignatureToEditor(sig.content);
+            toast('Signature inserted', 'success');
+          }}
+        />
       )}
     </div>
   );

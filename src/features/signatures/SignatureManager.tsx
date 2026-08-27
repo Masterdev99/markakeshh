@@ -27,12 +27,6 @@ const IMAGE_WIDTH_PRESETS = [
   { label: 'Full', width: null },
 ];
 
-function stripHtml(html: string): string {
-  const div = document.createElement('div');
-  div.innerHTML = html;
-  return (div.textContent || div.innerText || '').trim();
-}
-
 export function SignatureManager({ onClose, onInsert }: SignatureManagerProps) {
   const { toast } = useToast();
   const [sigs, setSigs] = useState<Signature[]>([]);
@@ -76,14 +70,17 @@ export function SignatureManager({ onClose, onInsert }: SignatureManagerProps) {
     });
   }
 
-  function handleSave() {
+  /** Returns the saved signature (or null when validation failed) so callers can insert it. */
+  function handleSave(): Signature | null {
     const trimmedName = name.trim();
-    if (!trimmedName) { toast('Signature name is required', 'error'); return; }
+    if (!trimmedName) { toast('Signature name is required', 'error'); return null; }
     const content = editorRef.current?.innerHTML ?? '';
 
     const updated = [...sigs];
+    let saved: Signature;
     if (selectedIdx >= 0 && !isNew) {
       updated[selectedIdx] = { ...updated[selectedIdx], name: trimmedName, content };
+      saved = updated[selectedIdx];
       setSigs(updated);
       saveSignatures(updated);
       toast('Signature saved', 'success');
@@ -95,6 +92,7 @@ export function SignatureManager({ onClose, onInsert }: SignatureManagerProps) {
         isDefault: updated.length === 0,
       };
       updated.push(newSig);
+      saved = newSig;
       setSigs(updated);
       saveSignatures(updated);
       toast('Signature created', 'success');
@@ -102,6 +100,13 @@ export function SignatureManager({ onClose, onInsert }: SignatureManagerProps) {
     }
     setIsNew(false);
     setView('list');
+    return saved;
+  }
+
+  /** Saves any pending edits first, so what gets inserted is what's on screen. */
+  function handleSaveAndInsert() {
+    const saved = handleSave();
+    if (saved) onInsert?.(saved);
   }
 
   function handleDelete(idx: number) {
@@ -225,11 +230,13 @@ export function SignatureManager({ onClose, onInsert }: SignatureManagerProps) {
           New signature
         </button>
         {sigs.map((sig, i) => (
-          <button
-            type="button"
+          <div
             key={sig.id ?? i}
+            role="button"
+            tabIndex={0}
             className={`sig-item${selectedIdx === i ? ' active' : ''}`}
             onClick={() => selectSig(i)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectSig(i); } }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontWeight: 700, fontSize: 14, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>{sig.name}</span>
@@ -237,10 +244,33 @@ export function SignatureManager({ onClose, onInsert }: SignatureManagerProps) {
                 <span style={{ fontSize: 10, background: 'var(--primary)', color: '#fff', borderRadius: 8, padding: '1px 6px', flexShrink: 0 }}>default</span>
               )}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'left', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-              {stripHtml(sig.content) || 'Empty signature'}
+            {/* Live preview — shows the signature exactly as it will appear in the
+                email (images included), instead of a text-only excerpt. */}
+            <div
+              className="sig-item-preview"
+              dangerouslySetInnerHTML={{ __html: sig.content || '<span style="opacity:.6">Empty signature</span>' }}
+            />
+            <div style={{ display: 'flex', gap: 6, marginTop: 'auto' }}>
+              {onInsert && (
+                <button
+                  type="button"
+                  className="modal-btn primary"
+                  style={{ padding: '5px 12px', fontSize: 12 }}
+                  onClick={(e) => { e.stopPropagation(); onInsert(sig); }}
+                >
+                  Insert into email
+                </button>
+              )}
+              <button
+                type="button"
+                className="modal-btn secondary"
+                style={{ padding: '5px 12px', fontSize: 12 }}
+                onClick={(e) => { e.stopPropagation(); selectSig(i); }}
+              >
+                Edit
+              </button>
             </div>
-          </button>
+          </div>
         ))}
       </div>
       {sigs.length === 0 && (
@@ -334,8 +364,8 @@ export function SignatureManager({ onClose, onInsert }: SignatureManagerProps) {
       {/* Footer actions */}
       <div style={{ display: 'flex', gap: 8, padding: '10px 20px', borderTop: '1px solid var(--border-light)', flexShrink: 0 }}>
         <button className="modal-btn primary" onClick={handleSave}>Save</button>
-        {onInsert && selectedIdx >= 0 && sigs[selectedIdx] && (
-          <button className="modal-btn secondary" onClick={() => onInsert(sigs[selectedIdx])}>Insert</button>
+        {onInsert && (
+          <button className="modal-btn secondary" onClick={handleSaveAndInsert}>Save &amp; insert into email</button>
         )}
         {selectedIdx >= 0 && !isNew && !sigs[selectedIdx]?.isDefault && (
           <button className="modal-btn secondary" onClick={() => handleSetDefault(selectedIdx)}>Set as default</button>

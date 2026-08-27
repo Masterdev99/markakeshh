@@ -20,6 +20,7 @@ import { graphApi } from '../../services/graph/client';
 import { useToast } from '../../app/providers/ToastProvider';
 import { SignatureManager } from '../signatures/SignatureManager';
 import { getFileExtension } from '../../utils/format';
+import { extractInlineImages } from '../../utils/inline-images';
 import {
   DismissIcon, SubtractIcon, MaximizeIcon, ArrowMinimizeIcon, AttachIcon,
   LinkIcon, EmojiIcon, SendIcon, SignatureIcon,
@@ -211,7 +212,9 @@ export function ComposeWindow({ initial, onClose }: ComposeWindowProps) {
     const parseRecipients = (str: string) =>
       str.split(/[,;]/).map((s) => s.trim()).filter(Boolean).map((e) => ({ emailAddress: { address: e } }));
 
-    const bodyHtml = bodyRef.current?.innerHTML ?? '';
+    // Signature/inline images live in the editor as `data:` URIs; Exchange strips
+    // those, so convert them to real inline (cid:) attachments before sending.
+    const { html: bodyHtml, attachments: inlineImages } = extractInlineImages(bodyRef.current?.innerHTML ?? '');
 
     const sendEmail = getSendEmail(account.email);
     const sendDisplayName = getSendDisplayName(account.email);
@@ -227,14 +230,16 @@ export function ComposeWindow({ initial, onClose }: ComposeWindowProps) {
     if (cc) msgPayload.ccRecipients = parseRecipients(cc);
     if (bcc) msgPayload.bccRecipients = parseRecipients(bcc);
     if (replyTo) msgPayload.replyTo = [{ emailAddress: { address: replyTo } }];
-    if (attachments.length > 0) {
-      msgPayload.attachments = attachments.map((a) => ({
+    const allAttachments = [
+      ...attachments.map((a) => ({
         '@odata.type': '#microsoft.graph.fileAttachment',
         name: a.name,
         contentType: a.contentType,
         contentBytes: a.contentBytes,
-      }));
-    }
+      })),
+      ...inlineImages,
+    ];
+    if (allAttachments.length > 0) msgPayload.attachments = allAttachments;
 
     if (sendEmail) {
       msgPayload.from = { emailAddress: { address: sendEmail, name: sendDisplayName || alias || account.displayName || '' } };
@@ -404,8 +409,9 @@ export function ComposeWindow({ initial, onClose }: ComposeWindowProps) {
         </div>
         <div className="compose-sep" />
         {/* Signature */}
-        <button className="compose-btn" style={{ width: 'auto', padding: '0 10px', gap: 5 }} onClick={() => setShowSigManager(true)} title="Signature">
+        <button className="compose-btn" style={{ width: 'auto', padding: '0 10px', gap: 5, fontSize: 12 }} onClick={() => setShowSigManager(true)} title="Insert a signature into this email">
           <SignatureIcon size={15} />
+          Signature
         </button>
         <div className="compose-sep" />
         {/* Reply-To toggle */}

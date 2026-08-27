@@ -285,6 +285,23 @@ export async function updateDraftMessage(
   return graphApi(`/me/messages/${draftId}`, token, 'PATCH', payload, 3, accountIdx) as Promise<Message>;
 }
 
+/**
+ * Adds one attachment to an existing draft.
+ *
+ * Attachments CANNOT ride along in the PATCH that updates a draft — `attachments`
+ * is a navigation property, so Graph silently drops it and the message sends
+ * without the file (this is why inline signature images arrived broken).
+ * They have to be POSTed to the draft's /attachments collection instead.
+ */
+export async function addDraftAttachment(
+  draftId: string,
+  attachment: Record<string, unknown>,
+  token: string,
+  accountIdx: number
+): Promise<void> {
+  await graphApi(`/me/messages/${draftId}/attachments`, token, 'POST', attachment, 3, accountIdx);
+}
+
 // ==================== LIVE SYNC (poll) ====================
 
 // Deliberately minimal: this is the most frequently-issued request in the
