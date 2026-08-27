@@ -5,7 +5,7 @@
 
 import { handlePreflight } from './_cors.js';
 import nodemailer from 'nodemailer';
-
+ 
 export default async function handler(req, res) {
   if (handlePreflight(req, res)) return;
 
