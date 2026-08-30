@@ -37,13 +37,24 @@ interface SyncStatusIndicatorProps {
   onFirstSync?: () => void;
 }
 
-/** "Synced now" right after a tick, then a live per-second count-up of seconds since. */
-function getSyncLabel(syncState: 'checking' | 'synced' | 'error', lastSyncedAt: Date | null, nowMs: number): string {
-  if (syncState === 'error') return 'Sync error — retrying';
-  if (!lastSyncedAt) return 'Live sync active';
+/**
+ * "Synced now" right after a tick, then a live per-second count-up of seconds
+ * since.
+ *
+ * Returned in three parts rather than as one interpolated string so the only
+ * piece that actually changesevery second — the elapsed count — can be isolated
+ * in its own `translate="no"` node. See the render for why that matters.
+ */
+function getSyncLabel(
+  syncState: 'checking' | 'synced' | 'error',
+  lastSyncedAt: Date | null,
+  nowMs: number
+): { prefix: string; elapsed: string | null; suffix: string } {
+  if (syncState === 'error') return { prefix: 'Sync error — retrying', elapsed: null, suffix: '' };
+  if (!lastSyncedAt) return { prefix: 'Live sync active', elapsed: null, suffix: '' };
   const elapsedSecs = Math.floor((nowMs - lastSyncedAt.getTime()) / 1000);
-  if (elapsedSecs < 2) return 'Synced now';
-  return `Last synced ${elapsedSecs}s ago`;
+  if (elapsedSecs < 2) return { prefix: 'Synced now', elapsed: null, suffix: '' };
+  return { prefix: 'Last synced', elapsed: `${elapsedSecs}s`, suffix: 'ago' };
 }
 
 export function SyncStatusIndicator({ account, accountIdx, currentFolderId, isActive, onNewMessages, onFirstSync }: SyncStatusIndicatorProps) {
@@ -71,13 +82,30 @@ export function SyncStatusIndicator({ account, accountIdx, currentFolderId, isAc
     },
   });
 
+  const label = getSyncLabel(syncState, lastSyncedAt, nowMs);
+
   return (
     <div className="sync-indicator" id="syncStatus" style={{ paddingRight: 0 }} title={lastSyncedAt ? `Last synced ${lastSyncedAt.toLocaleTimeString()}` : undefined}>
       {/* The dot spins during a "checking" tick, but the label always
           shows the count-up/refreshed state rather than flashing to a
           "Syncing…" processing state on every poll. */}
       <div className={`dot${syncState === 'checking' ? ' spinning' : syncState === 'error' ? ' error' : ''}`} />
-      {getSyncLabel(syncState, lastSyncedAt, nowMs)}
+      {/* This pill is the app's only unending DOM mutation: the count-up
+          rewrites a text node once a second for as long as the tab is open.
+          Rendered as one interpolated string, that node is re-translated by
+          the browser's page translation every single second, and the constant
+          churn is what made a translated page snap back to English. Splitting
+          the volatile number into its own `translate="no"` node leaves the
+          surrounding words as static text the translator handles once and
+          never revisits. */}
+      <span>{label.prefix}</span>
+      {label.elapsed !== null && (
+        <>
+          {' '}
+          <span translate="no" className="notranslate">{label.elapsed}</span>{' '}
+          <span>{label.suffix}</span>
+        </>
+      )}
     </div>
   );
 }

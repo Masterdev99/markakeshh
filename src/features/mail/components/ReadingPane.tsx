@@ -6,7 +6,7 @@
  * patchCidImages() via useCidImagePatch hook.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAccountsStore } from '../../../store/accounts';
 import { fetchMessage, fetchAttachments } from '../../../services/graph/messages';
@@ -87,7 +87,12 @@ export function ReadingPane({
   const { accounts, currentAccountIdx } = useAccountsStore();
   const account = currentAccountIdx >= 0 ? accounts[currentAccountIdx] : null;
   const getCidMap = useCidImagePatch();
-  const [cidPatchedHtml, setCidPatchedHtml] = useState<string | null>(null);
+  // Tagged with the message id it was produced for, so a patch resolving
+  // late (after the reader already moved on) is ignored rather than painted
+  // over the new message — which is what the old unconditional
+  // `setCidPatchedHtml(null)` reset in the effect below used to guard
+  // against, at the cost of an extra innerHTML write on every effect run.
+  const [cidPatched, setCidPatched] = useState<{ id: string; html: string } | null>(null);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
 
   const { data: message, isLoading: msgLoading, error: msgError } = useQuery({
@@ -109,26 +114,42 @@ export function ReadingPane({
     enabled: !!account && !!messageId && !!message?.hasAttachments,
   });
 
-  const bodyHtml = message?.body?.content
-    ? (message.body.contentType === 'html' ? sanitizeHtml(message.body.content) : `<pre style="white-space:pre-wrap;font-family:inherit">${message.body.content}</pre>`)
-    : '';
+  // Memoized on the raw body only. sanitizeHtml is expensive, but the reason
+  // this matters beyond cost is identity: recomputing it every render made it
+  // an unstable dependency of the effect below, so unrelated re-renders (a
+  // sync tick, a reply-panel toggle) re-ran the CID resolve and rewrote the
+  // body's innerHTML. See the DOM-churn note on renderedBodyHtml.
+  const bodyHtml = useMemo(() => {
+    const content = message?.body?.content;
+    if (!content) return '';
+    return message?.body?.contentType === 'html'
+      ? sanitizeHtml(content)
+      : `<pre style="white-space:pre-wrap;font-family:inherit">${content}</pre>`;
+  }, [message?.body?.content, message?.body?.contentType]);
 
   // Resolve CID images into React state — never mutate the rendered DOM
   // directly (see useCidImagePatch's doc comment for why that silently
   // reverted and made images "disappear after a while").
+  //
+  // Deliberately does NOT reset to null up front. Doing so rendered the
+  // blanked body for a frame before the patched one landed, i.e. two
+  // innerHTML writes per run instead of one. Because the resolved cid map is
+  // cached at module scope, a re-run for the same message rebuilds a
+  // *value-equal* string, which React's dangerouslySetInnerHTML compare then
+  // skips entirely — no DOM write, so anything living in that subtree
+  // (inline images, and the browser's own page translation) survives.
   useEffect(() => {
-    setCidPatchedHtml(null);
-    if (!message || !messageId || !bodyHtml.includes('cid:')) return;
+    if (!messageId || !bodyHtml.includes('cid:')) return;
     let cancelled = false;
     getCidMap(messageId, currentAccountIdx, bodyHtml).then((map) => {
       if (cancelled) return;
       // Always apply — even an empty map still needs to run so any cid: refs
       // that couldn't be resolved get blanked instead of left as a literal
       // cid: URL (which the browser can't fetch and shows as a broken image).
-      setCidPatchedHtml(applyCidPatch(bodyHtml, map));
+      setCidPatched({ id: messageId, html: applyCidPatch(bodyHtml, map) });
     });
     return () => { cancelled = true; };
-  }, [message, messageId, currentAccountIdx, bodyHtml, getCidMap]);
+  }, [messageId, currentAccountIdx, bodyHtml, getCidMap]);
 
   if (!messageId) {
     return (
@@ -150,7 +171,10 @@ export function ReadingPane({
   // raw — otherwise the browser attempts to fetch the literal `cid:` URL
   // (unsupported scheme) and shows a broken-image icon that then pops to a
   // real image once resolved, a visible double layout shift.
-  const renderedBodyHtml = cidPatchedHtml ?? blankCidRefs(bodyHtml);
+  // The id guard replaces the old null-reset: a patch left over from the
+  // previously-read message simply doesn't match and is ignored, so switching
+  // messages can't briefly show the wrong body.
+  const renderedBodyHtml = (cidPatched?.id === messageId ? cidPatched.html : null) ?? blankCidRefs(bodyHtml);
 
   function handleDownload(att: Attachment) {
     if (!att.contentBytes) return;
