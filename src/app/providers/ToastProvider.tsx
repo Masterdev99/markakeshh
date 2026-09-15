@@ -43,7 +43,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     const t = setTimeout(() => {
       setToasts((prev) => prev.filter((x) => x.id !== id));
       timers.current.delete(id);
-    }, 4000);
+    }, action ? 8000 : 4000); // leave actionable toasts (e.g. Undo) up long enough to click
     timers.current.set(id, t);
   }, []);
 

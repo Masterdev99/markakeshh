@@ -17,14 +17,11 @@ import {
   FolderIcon as FolderGlyph, ChevronDownIcon, AddIcon, MoreHorizontalIcon, DismissIcon,
 } from '../../../components/icons';
 import type { MailFolder } from '../../../types';
+import { isHiddenFolder } from '../hiddenFolders';
 
 // System folder names that appear in the fixed top section
 const SYSTEM_FOLDER_NAMES = new Set([
   'inbox', 'drafts', 'sentitems', 'deleteditems', 'junkemail', 'archive', 'outbox',
-]);
-
-const HIDDEN_FOLDER_NAMES = new Set([
-  'conversation history', 'sync issues', 'conflicts', 'local failures', 'server failures',
 ]);
 
 const SYSTEM_FOLDER_ORDER = ['inbox', 'drafts', 'sentitems', 'deleteditems', 'junkemail', 'archive'];
@@ -52,6 +49,7 @@ export function FolderSidebar({ onFolderSelect }: FolderSidebarProps) {
   const [createTarget, setCreateTarget] = useState<{ parentId: string | null; parentLabel: string } | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
 
   const { data: folders = EMPTY_FOLDERS, error, isLoading, refetch } = useQuery({
     queryKey: ['folders', account?.id],
@@ -82,7 +80,8 @@ export function FolderSidebar({ onFolderSelect }: FolderSidebarProps) {
       otherFolders.push(f);
     }
   }
-  const displayFolders = otherFolders.filter((f) => !HIDDEN_FOLDER_NAMES.has(f.displayName.toLowerCase()));
+  const hasHiddenFolders = otherFolders.some((f) => isHiddenFolder(f.displayName));
+  const displayFolders = showHidden ? otherFolders : otherFolders.filter((f) => !isHiddenFolder(f.displayName));
 
   // Verbatim port of renderFolderSidebar()'s hiddenDepth trick: walking the
   // depth-first list, once a folder with children is collapsed, every
@@ -205,6 +204,17 @@ export function FolderSidebar({ onFolderSelect }: FolderSidebarProps) {
             );
           })}
         </div>
+      )}
+
+      {hasHiddenFolders && (
+        <button
+          type="button"
+          className="folder-section-add-btn"
+          style={{ width: 'auto', margin: '4px 16px', padding: '2px 8px', fontSize: 12 }}
+          onClick={() => setShowHidden((v) => !v)}
+        >
+          {showHidden ? 'Hide system folders' : 'Show hidden folders'}
+        </button>
       )}
 
       {/* Loading and error states — previously a failed folder fetch (e.g. a

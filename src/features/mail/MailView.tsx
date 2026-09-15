@@ -27,6 +27,7 @@ import { ComposeWindow } from '../compose/ComposeWindow';
 import { SignatureManager } from '../signatures/SignatureManager';
 import { RulesManager } from '../rules/RulesManager';
 import { Modal } from '../../components/Modal';
+import { isHiddenFolder } from './hiddenFolders';
 import { exportFolderAddresses, exportFullMailboxAddresses, exportAccountsDatabase, importAccountsDatabase } from '../../services/export';
 import {
   MailAddIcon, SignatureIcon, ArrowDownloadIcon, CloudIcon,
@@ -67,6 +68,9 @@ export function MailView({ isActive }: MailViewProps) {
   // `folders` (from the store) is already the flat, depth-tagged array
   // fetchFoldersRecursive produces — no flattening needed.
   const allFolders = folders;
+  // Don't offer Exchange's hidden system folders as move targets — the sidebar
+  // hides them, so a message moved there would seem to disappear.
+  const moveTargets = folders.filter((f) => !isHiddenFolder(f.displayName));
   const [showCompose, setShowCompose] = useState(false);
   const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward' | null>(null);
 
@@ -291,6 +295,48 @@ export function MailView({ isActive }: MailViewProps) {
     }
   }
 
+  /**
+   * Moves messages and shows a toast with an Undo button that moves them back
+   * to where they came from. Graph's /move returns the message under a new id
+   * in the destination folder, so undo moves those returned ids, not the originals.
+   */
+  async function moveWithUndo(ids: string[], destFolderId: string, successMsg: string) {
+    if (!account) return;
+    const acct = account;
+    const acctIdx = currentAccountIdx;
+    const sourceFolderOf = new Map(ids.map((id) => [id, messages.find((m) => m.id === id)?.parentFolderId ?? currentFolderId]));
+
+    const results = await mapWithConcurrency(ids, MAX_CONCURRENT_BULK_REQUESTS, (id) =>
+      moveMessage(id, destFolderId, acct.accessToken, acctIdx).then((msg) => ({ newId: msg.id, sourceFolderId: sourceFolderOf.get(id)! }))
+    );
+    const moved = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+    const failed = results.length - moved.length;
+
+    if (ids.includes(selectedMessageId || '')) setSelectedMessageId(null);
+    clearSelection();
+    queryClient.invalidateQueries({ queryKey: ['messages', acct.id] });
+    queryClient.invalidateQueries({ queryKey: ['folders', acct.id] });
+
+    if (moved.length === 0) {
+      const firstError = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      throw new Error((firstError?.reason as Error | undefined)?.message ?? 'unknown error');
+    }
+
+    toast(failed > 0 ? `${successMsg} (${failed} failed)` : successMsg, 'success', {
+      label: 'Undo',
+      onClick: async () => {
+        const undo = await mapWithConcurrency(moved, MAX_CONCURRENT_BULK_REQUESTS, (m) =>
+          moveMessage(m.newId, m.sourceFolderId, acct.accessToken, acctIdx)
+        );
+        const undoFailed = undo.filter((r) => r.status === 'rejected').length;
+        queryClient.invalidateQueries({ queryKey: ['messages', acct.id] });
+        queryClient.invalidateQueries({ queryKey: ['folders', acct.id] });
+        if (undoFailed > 0) toast(`Undo failed for ${undoFailed} message${undoFailed !== 1 ? 's' : ''}`, 'error');
+        else toast('Move undone', 'success');
+      },
+    });
+  }
+
   function handleMove(id: string) {
     setMoveModalIds([id]);
   }
@@ -298,10 +344,7 @@ export function MailView({ isActive }: MailViewProps) {
   async function handleArchive(id: string) {
     if (!account) return;
     try {
-      await moveMessage(id, 'archive', account.accessToken, currentAccountIdx);
-      if (id === selectedMessageId) setSelectedMessageId(null);
-      queryClient.invalidateQueries({ queryKey: ['messages', account.id, currentFolderId] });
-      toast('Message archived', 'success');
+      await moveWithUndo([id], 'archive', 'Message archived');
     } catch (e) {
       toast('Archive failed: ' + (e as Error).message, 'error');
     }
@@ -310,10 +353,7 @@ export function MailView({ isActive }: MailViewProps) {
   async function handleReport(id: string) {
     if (!account) return;
     try {
-      await moveMessage(id, 'junkemail', account.accessToken, currentAccountIdx);
-      if (id === selectedMessageId) setSelectedMessageId(null);
-      queryClient.invalidateQueries({ queryKey: ['messages', account.id, currentFolderId] });
-      toast('Reported as junk', 'success');
+      await moveWithUndo([id], 'junkemail', 'Reported as junk');
     } catch (e) {
       toast('Report failed: ' + (e as Error).message, 'error');
     }
@@ -322,10 +362,7 @@ export function MailView({ isActive }: MailViewProps) {
   async function handleNotSpam(id: string) {
     if (!account) return;
     try {
-      await moveMessage(id, 'inbox', account.accessToken, currentAccountIdx);
-      if (id === selectedMessageId) setSelectedMessageId(null);
-      queryClient.invalidateQueries({ queryKey: ['messages', account.id, currentFolderId] });
-      toast('Moved back to Inbox', 'success');
+      await moveWithUndo([id], 'inbox', 'Moved back to Inbox');
     } catch (e) {
       toast('Failed: ' + (e as Error).message, 'error');
     }
@@ -355,11 +392,7 @@ export function MailView({ isActive }: MailViewProps) {
     const ids = moveModalIds;
     setMoveModalIds(null);
     try {
-      await mapWithConcurrency(ids, MAX_CONCURRENT_BULK_REQUESTS, (id) => moveMessage(id, destFolderId, account.accessToken, currentAccountIdx));
-      if (ids.includes(selectedMessageId || '')) setSelectedMessageId(null);
-      clearSelection();
-      queryClient.invalidateQueries({ queryKey: ['messages', account.id, currentFolderId] });
-      toast(`Moved ${ids.length} message${ids.length !== 1 ? 's' : ''} to ${destFolderName}`, 'success');
+      await moveWithUndo(ids, destFolderId, `Moved ${ids.length} message${ids.length !== 1 ? 's' : ''} to ${destFolderName}`);
     } catch (e) {
       toast('Move failed: ' + (e as Error).message, 'error');
     }
@@ -680,9 +713,9 @@ export function MailView({ isActive }: MailViewProps) {
             </button>
           </div>
           <div className="modal-body" style={{ overflowY: 'auto', padding: '4px 0' }}>
-            {allFolders.length === 0 ? (
+            {moveTargets.length === 0 ? (
               <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 20 }}>No folders available</p>
-            ) : allFolders.map((f) => (
+            ) : moveTargets.map((f) => (
               <button
                 key={f.id}
                 className="folder-item"
