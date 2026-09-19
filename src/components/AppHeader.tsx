@@ -12,6 +12,8 @@ import { useFoldersStore } from '../store/folders';
 import { useSearchStore } from '../store/search';
 import { useThemeStore } from '../store/theme';
 import { useToast } from '../app/providers/ToastProvider';
+import { withUnlock } from '../features/lock/featureLock';
+import { LockStatusButton } from '../features/lock/LockPrompt';
 import { getInitials, getAvatarColor } from '../utils/avatar';
 import { AppsIcon, SearchIcon, ArrowLeftIcon, SettingsIcon, ChevronDownIcon, ChevronRightIcon, MailIcon, WeatherSunnyIcon, WeatherMoonIcon } from './icons';
 
@@ -202,6 +204,8 @@ export function AppHeader({ currentApp, onSwitchApp }: AppHeaderProps) {
 
       {/* Right actions */}
       <div className="header-actions">
+        <LockStatusButton />
+
         <button
           className="header-btn"
           title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
@@ -217,7 +221,10 @@ export function AppHeader({ currentApp, onSwitchApp }: AppHeaderProps) {
             className={`header-btn${settingsOpen ? ' active' : ''}`}
             title="Settings"
             id="settingsBtn"
-            onClick={() => setSettingsOpen((o) => !o)}
+            onClick={() => {
+              if (settingsOpen) setSettingsOpen(false);
+              else withUnlock('Settings', () => setSettingsOpen(true));
+            }}
           >
             <SettingsIcon size={19} />
           </button>

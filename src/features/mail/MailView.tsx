@@ -35,6 +35,7 @@ import {
   CheckmarkCircleIcon, BroomIcon, FolderIcon, FlashIcon,
 } from '../../components/icons';
 import { MailboxSwitcher } from './components/MailboxSwitcher';
+import { withUnlock } from '../lock/featureLock';
 import { usePanelResize } from '../../hooks/usePanelResize';
 import type { Message } from '../../types';
 import './mail.css';
@@ -651,7 +652,7 @@ export function MailView({ isActive }: MailViewProps) {
               <div className="toolbar-sep" />
 
               <div className="toolbar-group">
-                <button className="toolbar-btn" onClick={() => setShowRulesManager(true)} title="Quick steps">
+                <button className="toolbar-btn" onClick={() => withUnlock('Quick steps', () => setShowRulesManager(true))} title="Quick steps">
                   <FlashIcon size={15} />Quick steps
                 </button>
               </div>
@@ -659,19 +660,19 @@ export function MailView({ isActive }: MailViewProps) {
               <div className="toolbar-spacer" />
 
               <div className="toolbar-group">
-                <button className="toolbar-btn" onClick={handleLoadAll} title="Load all messages in this folder">
+                <button className="toolbar-btn" onClick={() => withUnlock('Load All', () => void handleLoadAll())} title="Load all messages in this folder">
                   <ArrowDownloadIcon size={15} />Load All
                 </button>
-                <button className="toolbar-btn" onClick={handleExportAddresses} title="Export this folder's email addresses">
+                <button className="toolbar-btn" onClick={() => withUnlock('Export', () => void handleExportAddresses())} title="Export this folder's email addresses">
                   <ArrowUploadIcon size={15} />Export
                 </button>
-                <button className="toolbar-btn" onClick={handleExportFullMailbox} title="Full Backup — export addresses from every folder">
+                <button className="toolbar-btn" onClick={() => withUnlock('Backup', () => void handleExportFullMailbox())} title="Full Backup — export addresses from every folder">
                   <CloudIcon size={15} />Backup
                 </button>
-                <button className="toolbar-btn" onClick={handleExportDatabase} title="Export accounts database for backup">
+                <button className="toolbar-btn" onClick={() => withUnlock('Save DB', handleExportDatabase)} title="Export accounts database for backup">
                   <DatabaseIcon size={15} />Save DB
                 </button>
-                <button className="toolbar-btn" onClick={() => dbImportInputRef.current?.click()} title="Import accounts database from backup">
+                <button className="toolbar-btn" onClick={() => withUnlock('Load DB', () => dbImportInputRef.current?.click())} title="Import accounts database from backup">
                   <ArrowDownloadIcon size={15} />Load DB
                 </button>
                 <input ref={dbImportInputRef} type="file" accept=".m365db,.json" style={{ display: 'none' }} onChange={handleImportDatabase} />

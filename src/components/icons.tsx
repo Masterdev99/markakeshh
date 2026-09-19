@@ -446,3 +446,19 @@ export function ArrowSyncIcon({ size = 20, style, ...rest }: IconProps) {
     </svg>
   );
 }
+
+export function LockClosedIcon({ size = 20, style, ...rest }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} style={{ fill: 'currentColor', ...style }} {...rest}>
+      <path d="M12 2a4 4 0 0 1 4 4v2h1.75A2.25 2.25 0 0 1 20 10.25v9.5A2.25 2.25 0 0 1 17.75 22H6.25A2.25 2.25 0 0 1 4 19.75v-9.5A2.25 2.25 0 0 1 6.25 8H8V6a4 4 0 0 1 4-4m5.75 7.5H6.25a.75.75 0 0 0-.75.75v9.5c0 .41.34.75.75.75h11.5c.41 0 .75-.34.75-.75v-9.5a.75.75 0 0 0-.75-.75M12 13.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3m0-10A2.5 2.5 0 0 0 9.5 6v2h5V6A2.5 2.5 0 0 0 12 3.5" />
+    </svg>
+  );
+}
+
+export function LockOpenIcon({ size = 20, style, ...rest }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} style={{ fill: 'currentColor', ...style }} {...rest}>
+      <path d="M12 2a4 4 0 0 1 4 4 .75.75 0 0 1-1.5 0 2.5 2.5 0 0 0-5 0v2h8.25A2.25 2.25 0 0 1 20 10.25v9.5A2.25 2.25 0 0 1 17.75 22H6.25A2.25 2.25 0 0 1 4 19.75v-9.5A2.25 2.25 0 0 1 6.25 8H8V6a4 4 0 0 1 4-4m5.75 7.5H6.25a.75.75 0 0 0-.75.75v9.5c0 .41.34.75.75.75h11.5c.41 0 .75-.34.75-.75v-9.5a.75.75 0 0 0-.75-.75M12 13.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3" />
+    </svg>
+  );
+}

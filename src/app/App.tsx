@@ -23,6 +23,8 @@ import { CalendarView } from '../features/calendar/CalendarView';
 import { OneDriveView } from '../features/onedrive/OneDriveView';
 import { AdminView } from '../features/admin/AdminView';
 import { PlaceholderView } from '../components/PlaceholderView';
+import { LockPrompt, LockedGate } from '../features/lock/LockPrompt';
+import { useFeatureUnlocked, withUnlock } from '../features/lock/featureLock';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,6 +41,7 @@ const queryClient = new QueryClient({
 
 function AppShell() {
   const [currentApp, setCurrentApp] = useState<AppId>('mail');
+  const featureUnlocked = useFeatureUnlocked();
   const { accounts, currentAccountIdx, initAccounts, setIsAdmin } = useAccountsStore();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -134,15 +137,21 @@ function AppShell() {
     admin: 'Admin Center', account: 'My Account',
   };
 
+  // Admin sits behind the feature lock (see features/lock/featureLock.ts).
+  function switchApp(app: AppId) {
+    if (app === 'admin') withUnlock('Admin', () => setCurrentApp('admin'));
+    else setCurrentApp(app);
+  }
+
   return (
     <div className="app-layout">
       <AppHeader
         currentApp={currentApp}
-        onSwitchApp={setCurrentApp}
+        onSwitchApp={switchApp}
       />
 
       <div className="app-body">
-        <NavRail currentApp={currentApp} onSwitch={setCurrentApp} />
+        <NavRail currentApp={currentApp} onSwitch={switchApp} />
 
         {/* Mail */}
         <div className={`app-view${currentApp === 'mail' ? ' active' : ''}`} id="mailView">
@@ -193,7 +202,7 @@ function AppShell() {
 
         {/* Admin */}
         <div className={`app-view${currentApp === 'admin' ? ' active' : ''}`} id="adminView">
-          {currentApp === 'admin' && <AdminView />}
+          {currentApp === 'admin' && (featureUnlocked ? <AdminView /> : <LockedGate label="Admin" />)}
         </div>
 
         {/* My Account */}
@@ -201,6 +210,8 @@ function AppShell() {
           <PlaceholderView appName={APP_NAMES.account} phase="Phase 15" />
         </div>
       </div>
+
+      <LockPrompt />
     </div>
   );
 }

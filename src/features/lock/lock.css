@@ -1,0 +1,136 @@
+/* Feature lock — small, top-anchored password card. See LockPrompt.tsx. */
+
+.lock-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 72px 16px 0;
+  background: rgba(0, 0, 0, 0.12);
+  animation: lock-fade-in 0.12s ease-out;
+}
+
+.lock-card {
+  width: min(320px, 100%);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 12px 14px 10px;
+  animation: lock-drop-in 0.16s ease-out;
+}
+
+.lock-card-error { animation: lock-shake 0.3s ease-in-out; }
+
+.lock-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text);
+}
+
+.lock-card-head svg { color: var(--text-secondary); flex-shrink: 0; }
+.lock-card-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.lock-card-row { display: flex; gap: 6px; }
+
+.lock-card-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-bottom-color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+
+.lock-card-input:focus { border-bottom: 2px solid var(--primary); }
+.lock-card-error .lock-card-input { border-bottom: 2px solid var(--error); }
+
+.lock-card-btn {
+  height: 30px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.lock-card-btn:hover:not(:disabled) { background: var(--primary-dark); }
+.lock-card-btn:disabled { opacity: 0.5; cursor: default; }
+
+.lock-card-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.lock-card-hint-error { color: var(--error); }
+
+/* Header indicator while unlocked */
+.header-btn.lock-status-btn {
+  width: auto;
+  padding: 0 8px;
+  gap: 4px;
+  opacity: 0.85;
+}
+
+.header-btn.lock-status-btn:hover { opacity: 1; }
+.header-btn.lock-status-btn svg { width: 17px; height: 17px; }
+.lock-status-mins { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.lock-gate {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.lock-gate svg { color: var(--text-muted); }
+
+.lock-gate-btn {
+  height: 30px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.lock-gate-btn:hover { background: var(--surface-hover); }
+
+@keyframes lock-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lock-drop-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes lock-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  50% { transform: translateX(5px); }
+  75% { transform: translateX(-3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lock-backdrop, .lock-card, .lock-card-error { animation: none; }
+}
