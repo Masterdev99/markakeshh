@@ -99,7 +99,7 @@ export function startBackgroundRuleSyncLoop(opts: BackgroundRuleSyncOptions): ()
       // Cross-check with the background-sync Worker (if configured) before
       // acting, so this loop and the Worker's own cron tick can't both fire
       // the same rule for the same message. See the file header comment.
-      const claimResult = await claimMessageIds(account.id, newMsgs.map((m) => m.id));
+      const claimResult = await claimMessageIds(account.id, account.email, newMsgs.map((m) => m.id));
       let actionable: Message[];
       if (claimResult.ok) {
         hasWarnedDegraded = false;
@@ -128,7 +128,16 @@ export function startBackgroundRuleSyncLoop(opts: BackgroundRuleSyncOptions): ()
   }
 
   function tick(): void {
-    const qualifying = opts.accounts.filter((a) => hasActiveTelegramRule(a.email));
+    // One poller per mailbox: rules are keyed by email, so the same mailbox
+    // added twice (re-added, or feed-imported alongside a manual add) would
+    // otherwise be polled and rule-matched twice — two Telegram pings.
+    const seenEmails = new Set<string>();
+    const qualifying = opts.accounts.filter((a) => {
+      const key = (a.email || '').trim().toLowerCase();
+      if (!key || seenEmails.has(key) || !hasActiveTelegramRule(a.email)) return false;
+      seenEmails.add(key);
+      return true;
+    });
     const qualifyingIds = new Set(qualifying.map((a) => a.id));
 
     // Drop poll state for accounts that no longer qualify (rule disabled/

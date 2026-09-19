@@ -108,7 +108,7 @@ const CLAIM_RETRY_DELAYS_MS = [200, 500, 1000];
  * notification is worse than an occasional duplicate) and surface that this
  * happened, rather than silently degrading.
  */
-export async function claimMessageIds(accountId: string, messageIds: string[]): Promise<ClaimResult> {
+export async function claimMessageIds(accountId: string, mailbox: string, messageIds: string[]): Promise<ClaimResult> {
   const url = getWorkerSyncUrl();
   const secret = getWorkerSyncSecret();
   if (!url || !secret) return { ok: false, reason: 'not-configured' };
@@ -120,7 +120,9 @@ export async function claimMessageIds(accountId: string, messageIds: string[]): 
       const resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${secret}` },
-        body: JSON.stringify({ accountId, messageIds }),
+        // The Worker keys its cursor by mailbox (accountId differs per
+        // browser install); accountId is only a fallback for older Workers.
+        body: JSON.stringify({ mailbox: mailbox.trim().toLowerCase(), accountId, messageIds }),
       });
       if (!resp.ok) throw new Error(`Claim failed (${resp.status})`);
       const data = (await resp.json()) as { claimed: string[] };
