@@ -148,7 +148,18 @@ export async function graphApi(
       if (resp.status === 204) return null;
 
       if (resp.status === 429) {
-        const waitTime = Math.min(15_000 * Math.pow(2, attempt), 60_000);
+        // Graph tells us exactly how long to wait via Retry-After (seconds);
+        // honour it when present. The old blind 15s→30s→60s→60s ladder ignored
+        // that header and could park a SINGLE request for up to 165s. Because
+        // both pollers fire on a fixed interval (20s / 30s), rounds then
+        // overlapped and piled up — each new round adding requests that drew
+        // more 429s, which deepened the backoff further. Capped at 60s so a
+        // hostile/absurd Retry-After can't stall a request indefinitely.
+        const retryAfterRaw = resp.headers.get('Retry-After');
+        const retryAfterSecs = retryAfterRaw ? parseInt(retryAfterRaw, 10) : NaN;
+        const waitTime = Number.isFinite(retryAfterSecs) && retryAfterSecs >= 0
+          ? Math.min(retryAfterSecs * 1_000, 60_000)
+          : Math.min(2_000 * Math.pow(2, attempt), 30_000);
         console.log(`[graph] Rate limited, waiting ${waitTime / 1000}s (attempt ${attempt + 1})`);
         await new Promise((r) => setTimeout(r, waitTime));
         continue;

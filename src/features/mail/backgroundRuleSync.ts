@@ -127,7 +127,18 @@ export function startBackgroundRuleSyncLoop(opts: BackgroundRuleSyncOptions): ()
     }
   }
 
+  // Guards against overlapping rounds. A tick can easily outlive its own
+  // interval — it polls several accounts, and any one Graph call can sit in
+  // a 429 back-off. Without this, setInterval kept starting fresh rounds on
+  // top of the still-running one: each added more in-flight requests, which
+  // drew more throttling, which made rounds longer still. Requests and timers
+  // accumulated until the tab bogged down. A skipped tick is harmless — the
+  // next one is only seconds away, and seenIds means nothing is missed.
+  let tickInFlight = false;
+
   function tick(): void {
+    if (tickInFlight) return;
+
     // One poller per mailbox: rules are keyed by email, so the same mailbox
     // added twice (re-added, or feed-imported alongside a manual add) would
     // otherwise be polled and rule-matched twice — two Telegram pings.
@@ -150,7 +161,9 @@ export function startBackgroundRuleSyncLoop(opts: BackgroundRuleSyncOptions): ()
     if (qualifying.length === 0) return;
 
     const targets = qualifying.map((account) => ({ account, accountIdx: opts.accounts.indexOf(account) }));
-    mapWithConcurrency(targets, MAX_CONCURRENT_BACKGROUND_POLLS, ({ account, accountIdx }) => pollAccount(account, accountIdx));
+    tickInFlight = true;
+    mapWithConcurrency(targets, MAX_CONCURRENT_BACKGROUND_POLLS, ({ account, accountIdx }) => pollAccount(account, accountIdx))
+      .finally(() => { tickInFlight = false; });
   }
 
   let intervalId: ReturnType<typeof setInterval> | null = null;

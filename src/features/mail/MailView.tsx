@@ -404,12 +404,24 @@ export function MailView({ isActive }: MailViewProps) {
     let pages = 1;
     useActionStatusStore.getState().setText(`Loading all messages… (page ${pages})`);
     try {
-      while (hasNextPage) {
-        await fetchNextPage();
+      // Drive the loop off the value fetchNextPage() RETURNS, not the
+      // `hasNextPage` captured in this render's closure — that closure value
+      // never updates inside a running async function, so once a folder had
+      // a next page it stayed `true` forever. When the pages ran out,
+      // getNextPageParam returns undefined and fetchNextPage() becomes an
+      // instantly-resolving no-op, turning `while (hasNextPage)` into a tight
+      // infinite loop that pegged the CPU and froze the tab. A hard page cap
+      // is a second backstop against any future getNextPageParam regression.
+      let more = true;
+      let totalLoaded = messages.length;
+      while (more && pages < 1000) {
+        const res = await fetchNextPage();
         pages++;
+        totalLoaded = (res.data?.pages ?? []).reduce((n, p) => n + (p.value?.length ?? 0), 0) || totalLoaded;
         useActionStatusStore.getState().setText(`Loading all messages… (page ${pages})`);
+        more = res.hasNextPage ?? false;
       }
-      toast(`Loaded all messages (${messages.length})`, 'success');
+      toast(`Loaded all messages (${totalLoaded})`, 'success');
     } catch (e) {
       toast('Load all failed: ' + (e as Error).message, 'error');
     } finally {

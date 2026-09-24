@@ -48,8 +48,17 @@ export function useLiveSync({ account, accountIdx, currentFolderId, onNewMessage
   const onFirstSyncRef = useRef(onFirstSync);
   onFirstSyncRef.current = onFirstSync;
 
+  // Guards against overlapping polls. A single fetch can sit in a 429
+  // back-off for far longer than the poll interval, and setInterval doesn't
+  // wait — it just starts another one on top. Those extra in-flight requests
+  // draw more throttling, which makes each poll slower still, so the pile-up
+  // feeds itself until the tab is saturated. Skipping a tick costs nothing:
+  // the next is seconds away and seenIds means no message is missed.
+  const inFlightRef = useRef(false);
+
   const checkNewMessages = useCallback(async () => {
-    if (!account) return;
+    if (!account || inFlightRef.current) return;
+    inFlightRef.current = true;
     onSyncTickRef.current?.('checking');
     try {
       const latest = await fetchLatestMessages(currentFolderId, account.accessToken, accountIdx, 10);
@@ -62,6 +71,8 @@ export function useLiveSync({ account, accountIdx, currentFolderId, onNewMessage
     } catch (_e) {
       // Silently ignore sync errors — they'll be visible via error toasts if severe
       onSyncTickRef.current?.('error');
+    } finally {
+      inFlightRef.current = false;
     }
   }, [account, accountIdx, currentFolderId]);
 
